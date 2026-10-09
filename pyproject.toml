@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mtc"
+version = "0.1.0"
+description = "Local phone call agreement tracking (MTC)"
+readme = "PROJECT.md"
+requires-python = ">=3.11,<3.13"
+dependencies = []
+
+[project.optional-dependencies]
+core = [
+    "sqlalchemy>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dateutil>=2.8",
+]
+audio = [
+    "silero-vad",
+    "torch",
+    "soundfile",
+    "numpy",
+]
+asr = [
+    "mlx-whisper",
+]
+diarization = [
+    "pyannote.audio",
+]
+llm = [
+    "ollama",
+]
+api = [
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+]
+ui = [
+    "streamlit",
+]
+bot = [
+    "python-telegram-bot",
+]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
