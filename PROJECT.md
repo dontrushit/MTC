@@ -7,13 +7,13 @@
 ## Конвейер
 
 1. Запись звонка (стерео: канал 0 — менеджер, канал 1 — клиент; моно — резерв через diarization).
-2. Обработка аудио (ffmpeg, Silero VAD).
-3. Расшифровка (mlx-whisper, `large-v3-turbo`).
+2. Обработка аудио (ffmpeg, Silero VAD). ✅
+3. Расшифровка (mlx-whisper, `large-v3-turbo`). ✅
 4. Извлечение договорённостей (Ollama + qwen2.5, строгий JSON).
 5. Карточка клиента и статусы договорённостей.
 6. Напоминания (Telegram-бот) и контроль выполнения.
 
-**Текущий этап:** каркас проекта (этап 0) и схема БД (этап 1). Бизнес-логика пайплайна — заглушка.
+**Текущий этап:** этапы 2–3 (аудио + ASR). Стерео: split → VAD → whisper по каналам → merge → `utterances`. Моно пока `MonoNotSupportedError` (diarization — этап 5).
 
 ## Стек
 
@@ -35,17 +35,27 @@
 ```
 app/
   config.py          # pydantic-settings, .env
-  pipeline.py        # заглушка полного пайплайна
+  pipeline.py        # process_call: probe → split → VAD → ASR → БД
   db/                # models, session, init_db
-  audio/             # ffmpeg, VAD (будущее)
-  asr/               # whisper (будущее)
+  audio/
+    probe.py         # ffprobe → AudioInfo
+    preprocess.py    # stereo → manager.wav / client.wav (16 kHz mono)
+    vad.py           # Silero VAD, speech_segments
+    exceptions.py    # MonoNotSupportedError
+  asr/
+    transcribe.py    # mlx-whisper + фильтр галлюцинаций
+    merge.py         # merge_dialog по времени
   extraction/        # Ollama JSON (будущее)
   api/               # FastAPI (будущее)
   ui/                # Streamlit (будущее)
   bot/               # Telegram (будущее)
-scripts/check_env.py # отчёт OK/FAIL по окружению
-tests/               # pytest
+scripts/
+  check_env.py       # отчёт OK/FAIL по окружению
+  make_test_call.py  # data/raw/test_call.wav (macOS say + ffmpeg)
+  transcribe_file.py # CLI без БД
+tests/               # pytest (-m slow для полного пайплайна)
 data/raw/, data/processed/  # аудио и артефакты (в .gitignore)
+models/              # локальные веса whisper (в .gitignore)
 ```
 
 ## Модель данных (кратко)
@@ -62,19 +72,32 @@ data/raw/, data/processed/  # аудио и артефакты (в .gitignore)
 ## Соглашения
 
 - Настройки: `app.config.settings`, файл `.env` (образец `.env.example`).
+- Whisper: `WHISPER_MODEL` — путь к локальной mlx-модели (например `models/whisper-large-v3-turbo`) или HF repo id.
 - БД по умолчанию: `sqlite:///data/mtc.db`; инициализация: `init_db()` из `app.db.session`.
 - Сессия: контекстный менеджер `get_session()`.
 - Линтер: `ruff check .` (line-length 100).
-- Тесты: `pytest -q`; модели — in-memory SQLite.
+- Тесты: `pytest -q` (без `@slow`); `pytest -m slow -q` — полный ASR; модели БД — in-memory SQLite.
 - Тяжёлые optional-deps ставить только когда нужен соответствующий этап.
 
-## Быстрый старт (этап 0–1)
+## Быстрый старт
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[core,dev]"
+uv pip install -p .venv -e ".[core,dev,audio,asr]"
+# Положить mlx-whisper large-v3-turbo в models/whisper-large-v3-turbo, в .env:
+# WHISPER_MODEL=models/whisper-large-v3-turbo
+
 ruff check .
 pytest -q
-python scripts/check_env.py
+
+# Тестовый стерео-звонок (macOS, русский голос Milena/Yuri):
+python scripts/make_test_call.py
+
+# Расшифровка файла без БД:
+python scripts/transcribe_file.py data/raw/test_call.wav
+
+# Пайплайн по записи в БД:
+# from app.pipeline import process_call
+# process_call(call_id)
 ```
