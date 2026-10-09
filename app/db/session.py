@@ -34,6 +34,7 @@ def init_db() -> None:
     """Create all tables if they do not exist."""
     Base.metadata.create_all(bind=engine)
     _ensure_client_last_name()
+    _ensure_call_report()
 
 
 def _ensure_client_last_name() -> None:
@@ -52,3 +53,21 @@ def _ensure_client_last_name() -> None:
                     "NOT NULL DEFAULT ''"
                 )
             )
+
+
+def _ensure_call_report() -> None:
+    """Add the neural-network report columns to calls created before them."""
+    if not settings.DB_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(calls)")).fetchall()
+        if not rows:
+            return
+        columns = {row[1] for row in rows}
+        for name, ddl in (
+            ("report_topic", "TEXT NOT NULL DEFAULT ''"),
+            ("report_summary", "TEXT NOT NULL DEFAULT ''"),
+            ("report_json", "TEXT NOT NULL DEFAULT '{}'"),
+        ):
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE calls ADD COLUMN {name} {ddl}"))

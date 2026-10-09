@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.agreements_service import mark_overdue
@@ -129,19 +129,45 @@ def create_client(payload: ClientIn, db: Session = Depends(get_db)) -> Client:
 
 
 @app.get("/clients", response_model=list[ClientOut])
-def list_clients(q: str | None = None, db: Session = Depends(get_db)) -> list[Client]:
-    clients = list(db.scalars(select(Client).order_by(Client.name, Client.id)).all())
+def list_clients(
+    q: str | None = None,
+    sort: str = "name",
+    db: Session = Depends(get_db),
+) -> list[Client]:
+    if sort not in {"name", "last_name", "call"}:
+        raise HTTPException(status_code=400, detail="Неизвестная сортировка")
+    clients = list(db.scalars(select(Client)).all())
     needle = (q or "").strip().casefold()
-    if not needle:
-        return clients
-    matched = []
-    for client in clients:
-        haystack = " ".join(
-            part for part in (client.name, client.last_name, client.phone) if part
+    if needle:
+        clients = [
+            client
+            for client in clients
+            if needle
+            in " ".join(
+                part for part in (client.name, client.last_name, client.phone) if part
+            ).casefold()
+        ]
+    return _sort_clients(clients, sort, db)
+
+
+def _sort_clients(clients: list[Client], sort: str, db: Session) -> list[Client]:
+    if sort == "call":
+        latest = dict(
+            db.execute(
+                select(Call.client_id, func.max(Call.started_at)).group_by(Call.client_id)
+            ).all()
         )
-        if needle in haystack.casefold():
-            matched.append(client)
-    return matched
+        missing = datetime.min.replace(tzinfo=UTC)
+        return sorted(clients, key=lambda client: latest.get(client.id) or missing, reverse=True)
+    if sort == "last_name":
+        return sorted(
+            clients,
+            key=lambda client: (client.last_name.casefold(), client.name.casefold(), client.id),
+        )
+    return sorted(
+        clients,
+        key=lambda client: (client.name.casefold(), client.last_name.casefold(), client.id),
+    )
 
 
 def _client_names(payload: ClientIn) -> tuple[str, str, str]:

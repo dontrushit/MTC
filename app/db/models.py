@@ -83,6 +83,11 @@ class Call(Base):
         nullable=False,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_topic: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    report_summary: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    report_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}", server_default="{}"
+    )
 
     client: Mapped[Client] = relationship(back_populates="calls")
     manager: Mapped[Manager] = relationship(back_populates="calls")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -123,6 +124,121 @@ def show_agreement(agreement: dict) -> None:
     )
 
 
+def show_call_report(call: dict, agreements: list[dict]) -> None:
+    """Short structured report: topic, one line of context, agreements, open point."""
+    report = _report_dict(call)
+    blocks: list[str] = []
+    _section(blocks, "Тема", report.get("topic", ""))
+    _section(blocks, "Кратко", report.get("brief", ""))
+    blocks.append("<p class='mts-report-label'>Договорённости</p>")
+    blocks.append(_agreement_block(agreements))
+    _section(blocks, "Не решено", report.get("unresolved", ""))
+    st.html(f"<section class='mts-report'>{''.join(blocks)}</section>")
+
+
+_AUDIO_FORMATS = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+}
+
+
+def show_call_extras(call: dict) -> None:
+    """Optional dialog and audio player. The player can seek."""
+    from app.ui.api_client import ApiError, api_get_bytes
+
+    call_id = int(call["id"])
+    dialog_key = f"dialog-open-{call_id}"
+    audio_key = f"audio-open-{call_id}"
+    dialog_on = bool(st.session_state.get(dialog_key))
+    audio_on = bool(st.session_state.get(audio_key))
+    left, right = st.columns(2)
+    dialog_label = "Скрыть диалог" if dialog_on else "Диалог"
+    audio_label = "Скрыть запись" if audio_on else "Прослушать"
+    if left.button(dialog_label, key=f"dialog-btn-{call_id}"):
+        st.session_state[dialog_key] = not dialog_on
+        st.rerun()
+    if right.button(audio_label, key=f"audio-btn-{call_id}"):
+        st.session_state[audio_key] = not audio_on
+        st.rerun()
+    if dialog_on:
+        show_dialog(list(call.get("utterances") or []))
+    if audio_on:
+        try:
+            data, media = api_get_bytes(f"/calls/{call_id}/audio")
+        except ApiError as exc:
+            st.warning(exc.message)
+        else:
+            st.audio(
+                data,
+                format=_audio_format(str(call.get("audio_path") or ""), media),
+            )
+            st.caption("Ползунок перематывает запись.")
+
+
+def _audio_format(path: str, media: str) -> str:
+    if media.startswith("audio/"):
+        return media
+    return _AUDIO_FORMATS.get(Path(path).suffix.lower(), "audio/wav")
+
+
+def _report_dict(call: dict) -> dict:
+    raw = str(call.get("report_json") or "").strip()
+    data: dict = {}
+    if raw:
+        try:
+            loaded = json.loads(raw)
+        except json.JSONDecodeError:
+            loaded = {}
+        if isinstance(loaded, dict):
+            data = loaded
+    if not str(data.get("topic") or "").strip():
+        data["topic"] = call.get("report_topic") or ""
+    if "brief" not in data and str(call.get("report_summary") or "").strip():
+        summary = str(call.get("report_summary") or "").strip()
+        long_fields = ("client_request", "manager_response", "outcome", "facts")
+        if not any(data.get(name) for name in long_fields):
+            data["brief"] = summary
+    return data
+
+
+def _section(blocks: list[str], title: str, text: object) -> None:
+    body = str(text or "").strip()
+    if not body:
+        return
+    blocks.append(
+        f"<p class='mts-report-label'>{html.escape(title)}</p>"
+        f"<p class='mts-report-text'>{html.escape(body)}</p>"
+    )
+
+
+def _agreement_block(agreements: list[dict]) -> str:
+    if not agreements:
+        return "<p class='mts-report-empty'>В этом разговоре договорённостей нет.</p>"
+    items = []
+    for index, agreement in enumerate(agreements, start=1):
+        bits = [responsible_ru(str(agreement.get("responsible") or ""))]
+        if agreement.get("due_date"):
+            bits.append(_ru_date(str(agreement["due_date"])))
+        elif agreement.get("due_text"):
+            bits.append(str(agreement["due_text"]))
+        if agreement.get("amount"):
+            bits.append(str(agreement["amount"]))
+        conditions = str(agreement.get("conditions") or "").strip()
+        extra = ""
+        if conditions:
+            extra += f"<p class='mts-report-note'>{html.escape(conditions)}</p>"
+        items.append(
+            "<li class='mts-report-item'>"
+            f"<b>{index}. {html.escape(str(agreement.get('action') or ''))}</b>"
+            f"<span>{html.escape(' · '.join(bit for bit in bits if bit))}</span>"
+            f"{extra}</li>"
+        )
+    return f"<ol class='mts-report-list'>{''.join(items)}</ol>"
+
+
 def show_dialog(utterances: list[dict]) -> None:
     if not utterances:
         st.caption("Реплик пока нет.")
@@ -214,8 +330,6 @@ def _header() -> str:
     return (
         "<div class='mts-chrome'>"
         "<div class='mts-bar'>"
-        "<a class='mts-logo' href='/' aria-label='Звонок'>"
-        "<span class='mts-logo-mark'><span>M</span><span>T</span><span>C</span></span></a>"
         f"<nav class='mts-menu'>{''.join(links)}</nav>"
         "</div></div>"
     )

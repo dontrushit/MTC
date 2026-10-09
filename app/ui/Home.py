@@ -2,31 +2,22 @@
 
 import time as time_module
 from datetime import date, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import streamlit as st
 
 from app.config import settings
-from app.ui.api_client import ApiError, api_get, api_get_bytes, api_patch, api_post
+from app.ui.api_client import ApiError, api_get, api_patch, api_post
 from app.ui.labels import call_status_ru, format_dt
 from app.ui.theme import (
     configure,
     page_heading,
-    show_agreement,
-    show_dialog,
+    show_call_extras,
+    show_call_report,
     show_section,
 )
 
 configure("Звонок")
-
-_AUDIO_FORMATS = {
-    ".wav": "audio/wav",
-    ".mp3": "audio/mpeg",
-    ".m4a": "audio/mp4",
-    ".ogg": "audio/ogg",
-    ".flac": "audio/flac",
-}
 
 
 def _show_progress() -> None:
@@ -54,20 +45,10 @@ def _show_report() -> None:
         return
     show_section("Отчёт")
     st.caption(format_dt(call.get("started_at")))
-    try:
-        audio, media = api_get_bytes(f"/calls/{call_id}/audio")
-    except ApiError as exc:
-        st.warning(exc.message)
-    else:
-        st.audio(audio, format=_audio_format(call["audio_path"], media))
-    show_dialog(call["utterances"])
-    if call["agreements"]:
-        show_section("Договорённости")
-        for agreement in call["agreements"]:
-            show_agreement(agreement)
-            _done_button(agreement)
-    else:
-        st.caption("Договорённостей в этом разговоре не найдено.")
+    show_call_report(call, call["agreements"])
+    show_call_extras(call)
+    for agreement in call["agreements"]:
+        _done_button(agreement)
 
 
 def _done_button(agreement: dict) -> None:
@@ -92,7 +73,7 @@ def main() -> None:
 
 def _call_form(managers: list[dict], clients: list[dict]) -> None:
     manager_id = _manager_id(managers)
-    client_id, new_client = _client_fields(clients)
+    client_id = _client_fields(clients)
     recorded = st.audio_input("Запись звонка", sample_rate=16000)
     if recorded is not None and recorded.getvalue():
         payload = recorded.getvalue()
@@ -104,7 +85,6 @@ def _call_form(managers: list[dict], clients: list[dict]) -> None:
             _submit_audio(
                 manager_id,
                 client_id,
-                new_client,
                 filename="recording.wav",
                 payload=payload,
                 content_type="audio/wav",
@@ -112,14 +92,10 @@ def _call_form(managers: list[dict], clients: list[dict]) -> None:
                 file_id=file_id,
             )
     with st.expander("Загрузить готовый файл"):
-        _file_source(manager_id, client_id, new_client)
+        _file_source(manager_id, client_id)
 
 
-def _file_source(
-    manager_id: int,
-    client_id: int | None,
-    new_client: dict[str, str],
-) -> None:
+def _file_source(manager_id: int, client_id: int | None) -> None:
     uploaded = st.file_uploader(
         "Файл",
         type=["wav", "mp3", "m4a", "ogg", "flac"],
@@ -134,7 +110,6 @@ def _file_source(
         _submit_audio(
             manager_id,
             client_id,
-            new_client,
             filename=uploaded.name,
             payload=uploaded.getvalue(),
             content_type=uploaded.type or "application/octet-stream",
@@ -146,7 +121,6 @@ def _file_source(
 def _submit_audio(
     manager_id: int,
     client_id: int | None,
-    new_client: dict[str, str],
     *,
     filename: str,
     payload: bytes,
@@ -157,13 +131,13 @@ def _submit_audio(
     if not payload:
         st.warning("Запись пустая.")
         return
-    target_id = _resolve_client(client_id, new_client)
-    if target_id is None:
+    if client_id is None:
+        st.warning("Выберите клиента или добавьте нового.")
         return
     result = api_post(
         "/calls",
         data={
-            "client_id": str(target_id),
+            "client_id": str(client_id),
             "manager_id": str(manager_id),
             "started_at": started_at,
         },
@@ -188,57 +162,51 @@ def _manager_id(managers: list[dict]) -> int:
     )
 
 
-def _client_fields(clients: list[dict]) -> tuple[int | None, dict[str, str]]:
+def _client_fields(clients: list[dict]) -> int | None:
     client_id = None
     if clients:
+        ids = [item["id"] for item in clients]
+        chosen = st.session_state.pop("select_client_id", None)
+        if chosen in ids:
+            st.session_state["call_client"] = chosen
         client_id = st.selectbox(
             "Клиент",
-            options=[item["id"] for item in clients],
+            options=ids,
             format_func=lambda item_id: _client_label(clients, item_id),
+            key="call_client",
         )
     else:
         st.caption("Клиентов пока нет — заполните нового.")
     with st.expander("Новый клиент", expanded=not clients):
-        name = st.text_input("Имя")
-        last_name = st.text_input("Фамилия")
-        phone = st.text_input("Номер")
-    return client_id, {
-        "name": name.strip(),
-        "last_name": last_name.strip(),
-        "phone": phone.strip(),
-    }
-
-
-def _resolve_client(client_id: int | None, new_client: dict[str, str]) -> int | None:
-    if new_client["name"] and new_client["last_name"] and new_client["phone"]:
-        created = api_post(
-            "/clients",
-            json={
-                "name": new_client["name"],
-                "last_name": new_client["last_name"],
-                "phone": new_client["phone"],
-            },
-        )
-        return int(created["id"])
-    if new_client["name"] or new_client["last_name"] or new_client["phone"]:
-        st.warning("Для нового клиента нужны имя, фамилия и номер.")
-        return None
-    if client_id is None:
-        st.warning("Выберите клиента или создайте нового.")
-        return None
-    return client_id
+        if st.session_state.pop("clear_new_client", False):
+            st.session_state["new_client_name"] = ""
+            st.session_state["new_client_last"] = ""
+            st.session_state["new_client_phone"] = ""
+        name = st.text_input("Имя", key="new_client_name")
+        last_name = st.text_input("Фамилия", key="new_client_last")
+        phone = st.text_input("Номер", key="new_client_phone")
+        if st.button("Добавить клиента", type="primary"):
+            if not name.strip() or not last_name.strip() or not phone.strip():
+                st.warning("Нужны имя, фамилия и номер.")
+            else:
+                created = api_post(
+                    "/clients",
+                    json={
+                        "name": name.strip(),
+                        "last_name": last_name.strip(),
+                        "phone": phone.strip(),
+                    },
+                )
+                st.session_state["select_client_id"] = int(created["id"])
+                st.session_state["clear_new_client"] = True
+                st.rerun()
+    return int(client_id) if client_id is not None else None
 
 
 def _client_label(clients: list[dict], client_id: int) -> str:
     client = next(item for item in clients if item["id"] == client_id)
     full = " ".join(part for part in (client.get("name"), client.get("last_name")) if part)
     return f"{full} — {client['phone']}"
-
-
-def _audio_format(path: str, media: str) -> str:
-    if media.startswith("audio/"):
-        return media
-    return _AUDIO_FORMATS.get(Path(path).suffix.lower(), "audio/wav")
 
 
 try:

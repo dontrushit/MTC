@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -149,6 +150,14 @@ def extract_call(call_id: int) -> None:
                 )
             )
 
+        report = {
+            "topic": result.topic.strip(),
+            "brief": result.brief.strip(),
+            "unresolved": result.unresolved.strip(),
+        }
+        call.report_topic = report["topic"]
+        call.report_summary = report["brief"]
+        call.report_json = json.dumps(report, ensure_ascii=False)
         call.status = CallStatus.EXTRACTED
         call.error_message = None
         session.commit()

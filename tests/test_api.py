@@ -111,6 +111,42 @@ def test_create_manager_and_client(api: dict) -> None:
     assert [item["id"] for item in by_phone.json()] == [customer["id"]]
 
 
+def test_clients_sort_by_name_surname_and_call(api: dict) -> None:
+    manager = _manager(api)
+    boris = api["client"].post(
+        "/clients", json={"name": "Борис", "last_name": "Яковлев", "phone": "+79000000001"}
+    ).json()
+    anna = api["client"].post(
+        "/clients", json={"name": "Анна", "last_name": "Андреева", "phone": "+79000000002"}
+    ).json()
+    api["client"].post(
+        "/calls",
+        data={
+            "client_id": str(boris["id"]),
+            "manager_id": str(manager["id"]),
+            "started_at": "2026-10-01T10:00:00",
+        },
+        files={"file": ("old.wav", b"RIFFold", "audio/wav")},
+    )
+    api["client"].post(
+        "/calls",
+        data={
+            "client_id": str(anna["id"]),
+            "manager_id": str(manager["id"]),
+            "started_at": "2026-10-08T10:00:00",
+        },
+        files={"file": ("new.wav", b"RIFFnew", "audio/wav")},
+    )
+
+    by_name = api["client"].get("/clients", params={"sort": "name"})
+    assert [item["name"] for item in by_name.json()] == ["Анна", "Борис"]
+    by_surname = api["client"].get("/clients", params={"sort": "last_name"})
+    assert [item["last_name"] for item in by_surname.json()] == ["Андреева", "Яковлев"]
+    by_call = api["client"].get("/clients", params={"sort": "call"})
+    assert [item["id"] for item in by_call.json()] == [anna["id"], boris["id"]]
+    assert api["client"].get("/clients", params={"sort": "nope"}).status_code == 400
+
+
 def test_upload_call_saves_file_and_submits(api: dict) -> None:
     manager = _manager(api)
     customer = _customer(api)

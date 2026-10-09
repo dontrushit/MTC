@@ -50,6 +50,9 @@ class CallOut(OrmOut):
     channels: int
     status: CallStatus
     error_message: str | None
+    report_topic: str = ""
+    report_summary: str = ""
+    report_json: str = "{}"
 
 
 class UtteranceOut(OrmOut):
