@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select
 
 from app.asr.merge import merge_dialog
+from app.asr.roles import resolve_roles
 from app.asr.transcribe import transcribe_channel
 from app.audio.preprocess import prepare_channels
 from app.audio.probe import probe
@@ -58,7 +59,7 @@ def process_call(call_id: int) -> None:
         segs_client = transcribe_channel(
             channel_paths[SpeakerRole.CLIENT], SpeakerRole.CLIENT
         )
-        dialog = merge_dialog(segs_manager, segs_client)
+        dialog = resolve_roles(merge_dialog(segs_manager, segs_client))
 
         session.execute(delete(Utterance).where(Utterance.call_id == call_id))
         for seg in dialog:

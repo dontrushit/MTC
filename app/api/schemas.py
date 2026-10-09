@@ -15,15 +15,15 @@ class OrmOut(BaseModel):
 
 class ClientIn(BaseModel):
     name: str = Field(min_length=1)
+    last_name: str = Field(min_length=1)
     phone: str = Field(min_length=1)
-    company: str | None = None
 
 
 class ClientOut(OrmOut):
     id: int
     name: str
+    last_name: str
     phone: str
-    company: str | None
     created_at: datetime
 
 

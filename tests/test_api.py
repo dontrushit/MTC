@@ -84,10 +84,10 @@ def _manager(api: dict, name: str = "Анна") -> dict:
     return response.json()
 
 
-def _customer(api: dict, name: str = "ООО Ромашка") -> dict:
+def _customer(api: dict) -> dict:
     response = api["client"].post(
         "/clients",
-        json={"name": name, "phone": "+74951234567", "company": "Ромашка"},
+        json={"name": "Иван", "last_name": "Петров", "phone": "+74951234567"},
     )
     assert response.status_code == 200
     return response.json()
@@ -102,8 +102,10 @@ def test_create_manager_and_client(api: dict) -> None:
     assert [item["name"] for item in listed.json()] == ["Анна"]
 
     customer = _customer(api)
+    assert customer["name"] == "Иван"
+    assert customer["last_name"] == "Петров"
     assert customer["phone"] == "+74951234567"
-    found = api["client"].get("/clients", params={"q": "ромашка"})
+    found = api["client"].get("/clients", params={"q": "петров"})
     assert [item["id"] for item in found.json()] == [customer["id"]]
     by_phone = api["client"].get("/clients", params={"q": "495123"})
     assert [item["id"] for item in by_phone.json()] == [customer["id"]]

@@ -43,6 +43,9 @@ class Client(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    last_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="", server_default=""
+    )
     phone: Mapped[str] = mapped_column(String(64), nullable=False)
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

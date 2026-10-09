@@ -1,6 +1,7 @@
 """Split a mixed mono phone recording into two speaker tracks.
 
-The first person to speak becomes the manager. Pass --swap later if that is wrong.
+The first person to speak is a provisional manager. Later the transcript
+can swap the labels if the employee identifies themselves or the model says so.
 Speaker identity comes from a local voice encoder (no download, no account).
 """
 

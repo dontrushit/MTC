@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from app.asr.merge import merge_dialog
+from app.asr.roles import resolve_roles
 from app.asr.transcribe import transcribe_channel
 from app.audio.preprocess import prepare_channels
 from app.audio.vad import speech_segments
@@ -30,7 +31,7 @@ def transcribe_path(path: Path) -> list[tuple[float, SpeakerRole, str]]:
 
     segs_manager = transcribe_channel(channel_paths[SpeakerRole.MANAGER], SpeakerRole.MANAGER)
     segs_client = transcribe_channel(channel_paths[SpeakerRole.CLIENT], SpeakerRole.CLIENT)
-    dialog = merge_dialog(segs_manager, segs_client)
+    dialog = resolve_roles(merge_dialog(segs_manager, segs_client))
     return [(seg.start, seg.speaker, seg.text) for seg in dialog]
 
 

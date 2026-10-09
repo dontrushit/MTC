@@ -27,9 +27,9 @@ def main() -> None:
             customer = client.post(
                 "/clients",
                 json={
-                    "name": "ООО Ромашка",
+                    "name": "Иван",
+                    "last_name": "Петров",
                     "phone": "+74951234567",
-                    "company": "ООО Ромашка",
                 },
             )
             customer.raise_for_status()

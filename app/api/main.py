@@ -118,11 +118,10 @@ def list_managers(db: Session = Depends(get_db)) -> list[Manager]:
 
 @app.post("/clients", response_model=ClientOut)
 def create_client(payload: ClientIn, db: Session = Depends(get_db)) -> Client:
-    company = payload.company.strip() if payload.company else None
     client = Client(
         name=payload.name.strip(),
+        last_name=payload.last_name.strip(),
         phone=payload.phone.strip(),
-        company=company or None,
     )
     db.add(client)
     db.commit()
@@ -139,7 +138,7 @@ def list_clients(q: str | None = None, db: Session = Depends(get_db)) -> list[Cl
     matched = []
     for client in clients:
         haystack = " ".join(
-            part for part in (client.name, client.phone, client.company or "") if part
+            part for part in (client.name, client.last_name, client.phone) if part
         )
         if needle in haystack.casefold():
             matched.append(client)
