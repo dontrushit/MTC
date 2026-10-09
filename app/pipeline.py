@@ -1,10 +1,11 @@
-"""End-to-end call processing: audio prep, ASR, persist utterances."""
+"""End-to-end call processing: audio prep, ASR, extraction, persist."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.asr.merge import merge_dialog
 from app.asr.transcribe import transcribe_channel
@@ -12,12 +13,22 @@ from app.audio.preprocess import split_channels
 from app.audio.probe import probe
 from app.audio.vad import speech_segments
 from app.config import settings
-from app.db.models import Call, CallStatus, SpeakerRole, Utterance
+from app.db.models import (
+    Agreement,
+    AgreementResponsible,
+    Call,
+    CallStatus,
+    SpeakerRole,
+    Utterance,
+)
 from app.db.session import SessionLocal
+from app.extraction.dates import resolve_due
+from app.extraction.llm import extract
+from app.extraction.verify import verify_agreements
 
 
 def process_call(call_id: int) -> None:
-    """Transcribe a call by id and store utterances (idempotent on re-run)."""
+    """Transcribe a call by id, extract agreements, persist (idempotent on re-run)."""
     session = SessionLocal()
     try:
         call = session.get(Call, call_id)
@@ -62,6 +73,8 @@ def process_call(call_id: int) -> None:
 
         call.status = CallStatus.TRANSCRIBED
         session.commit()
+
+        extract_call(call_id)
     except Exception as exc:
         session.rollback()
         call = session.get(Call, call_id)
@@ -69,5 +82,62 @@ def process_call(call_id: int) -> None:
             call.status = CallStatus.ERROR
             call.error_message = str(exc)
             session.commit()
+    finally:
+        session.close()
+
+
+def extract_call(call_id: int) -> None:
+    """Extract agreements for a transcribed call (idempotent)."""
+    session = SessionLocal()
+    tz = ZoneInfo(settings.TZ)
+    try:
+        call = session.get(Call, call_id)
+        if call is None:
+            msg = f"Call {call_id} not found"
+            raise ValueError(msg)
+        if call.status not in (CallStatus.TRANSCRIBED, CallStatus.EXTRACTED):
+            msg = f"Call {call_id} must be transcribed before extraction (status={call.status})"
+            raise ValueError(msg)
+
+        utterances = list(
+            session.scalars(
+                select(Utterance)
+                .where(Utterance.call_id == call_id)
+                .order_by(Utterance.start_sec)
+            ).all()
+        )
+
+        result = extract(utterances, call.started_at)
+        verified = verify_agreements(utterances, result.agreements)
+
+        session.execute(delete(Agreement).where(Agreement.call_id == call_id))
+        for ag in verified:
+            due_text = ag.due_text or ""
+            due_date = resolve_due(ag.due_text, call.started_at, tz)
+            session.add(
+                Agreement(
+                    call_id=call_id,
+                    client_id=call.client_id,
+                    action=ag.action,
+                    responsible=AgreementResponsible(ag.responsible),
+                    due_date=due_date,
+                    due_text=due_text,
+                    amount=ag.amount,
+                    conditions=ag.conditions,
+                    quote=ag.quote,
+                )
+            )
+
+        call.status = CallStatus.EXTRACTED
+        call.error_message = None
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        call = session.get(Call, call_id)
+        if call is not None:
+            call.status = CallStatus.ERROR
+            call.error_message = str(exc)
+            session.commit()
+        raise
     finally:
         session.close()

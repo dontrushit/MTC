@@ -9,11 +9,11 @@
 1. Запись звонка (стерео: канал 0 — менеджер, канал 1 — клиент; моно — резерв через diarization).
 2. Обработка аудио (ffmpeg, Silero VAD). ✅
 3. Расшифровка (mlx-whisper, `large-v3-turbo`). ✅
-4. Извлечение договорённостей (Ollama + qwen2.5, строгий JSON).
+4. Извлечение договорённостей (Ollama + qwen2.5, строгий JSON). ✅ код готов, ждёт модель в Ollama
 5. Карточка клиента и статусы договорённостей.
 6. Напоминания (Telegram-бот) и контроль выполнения.
 
-**Текущий этап:** этапы 2–3 (аудио + ASR). Стерео: split → VAD → whisper по каналам → merge → `utterances`. Моно пока `MonoNotSupportedError` (diarization — этап 5).
+**Текущий этап:** этап 4 (извлечение). Конвейер: split → VAD → whisper → merge → `utterances` → Ollama JSON → проверка цитаты → `agreements` + `resolve_due`. **Принцип:** LLM извлекает факты из текста; Python детерминированно считает даты; каждая договорённость проверяется по цитате в реплике. Моно пока `MonoNotSupportedError` (diarization — этап 5).
 
 ## Стек
 
@@ -45,7 +45,7 @@ app/
   asr/
     transcribe.py    # mlx-whisper + фильтр галлюцинаций
     merge.py         # merge_dialog по времени
-  extraction/        # Ollama JSON (будущее)
+  extraction/        # schema, prompt, llm, dates, verify
   api/               # FastAPI (будущее)
   ui/                # Streamlit (будущее)
   bot/               # Telegram (будущее)
@@ -53,6 +53,7 @@ scripts/
   check_env.py       # отчёт OK/FAIL по окружению
   make_test_call.py  # data/raw/test_call.wav (macOS say + ffmpeg)
   transcribe_file.py # CLI без БД
+  extract_file.py    # транскрипция + извлечение без БД
 tests/               # pytest (-m slow для полного пайплайна)
 data/raw/, data/processed/  # аудио и артефакты (в .gitignore)
 models/              # локальные веса whisper (в .gitignore)
@@ -84,7 +85,7 @@ models/              # локальные веса whisper (в .gitignore)
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-uv pip install -p .venv -e ".[core,dev,audio,asr]"
+uv pip install -p .venv -e ".[core,dev,audio,asr,llm]"
 # Положить mlx-whisper large-v3-turbo в models/whisper-large-v3-turbo, в .env:
 # WHISPER_MODEL=models/whisper-large-v3-turbo
 
@@ -96,6 +97,9 @@ python scripts/make_test_call.py
 
 # Расшифровка файла без БД:
 python scripts/transcribe_file.py data/raw/test_call.wav
+
+# Расшифровка + договорённости (нужна модель Ollama):
+python scripts/extract_file.py data/raw/test_call.wav --date 2026-10-09
 
 # Пайплайн по записи в БД:
 # from app.pipeline import process_call
