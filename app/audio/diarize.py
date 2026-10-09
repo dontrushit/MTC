@@ -17,7 +17,11 @@ from app.audio.vad import speech_segments
 from app.db.models import SpeakerRole
 
 SAMPLE_RATE = 16000
-MIN_EMBED_SEC = 0.6
+MIN_EMBED_SEC = 0.45
+WINDOW_SEC = 1.2
+HOP_SEC = 0.4
+# Weaker than this, two fragments are not evidence of the same voice.
+ABSORB_SIM = 0.6
 SAME_SPEAKER_SIMILARITY = 0.72
 
 
@@ -61,26 +65,86 @@ def _embed(wav: np.ndarray) -> np.ndarray | None:
     return vector / norm
 
 
-def _kmeans2(vectors: np.ndarray) -> np.ndarray:
-    """Two clusters on L2-normalized rows. Returns 0/1 labels."""
-    first = vectors[0]
-    second = vectors[int(np.argmin(vectors @ first))]
-    labels = np.zeros(len(vectors), dtype=int)
-    for _ in range(25):
-        score = np.stack([vectors @ first, vectors @ second], axis=1)
-        labels = np.argmax(score, axis=1)
-        if labels.min() == labels.max():
-            break
-        updated = []
-        for center_id, center in ((0, first), (1, second)):
-            group = vectors[labels == center_id]
-            mean = group.mean(axis=0)
-            mean = mean / np.linalg.norm(mean)
-            updated.append(mean)
-        if np.allclose(updated[0], first) and np.allclose(updated[1], second):
-            break
-        first, second = updated
+def _group_similarity(sim: np.ndarray, left: list[int], right: list[int]) -> float:
+    scores = [sim[i, j] for i in left for j in right]
+    return float(np.mean(scores)) if scores else 0.0
+
+
+def _cluster_few(vectors: np.ndarray) -> np.ndarray:
+    """Two voices when there are only a handful of fragments."""
+    similarity = vectors @ vectors.T
+    count = len(vectors)
+    labels = np.zeros(count, dtype=int)
+    groups: list[list[int]] = [[0]]
+    for index in range(1, count):
+        scores = [
+            float(np.mean([similarity[index, other] for other in group])) for group in groups
+        ]
+        best = int(np.argmax(scores))
+        if scores[best] >= SAME_SPEAKER_SIMILARITY or len(groups) >= 2:
+            groups[best].append(index)
+        else:
+            groups.append([index])
+    if len(groups) < 2:
+        return labels
+    if _group_similarity(similarity, groups[0], groups[1]) > SAME_SPEAKER_SIMILARITY:
+        return labels
+    for index in groups[1]:
+        labels[index] = 1
     return labels
+
+
+def cluster_two(vectors: np.ndarray) -> np.ndarray:
+    """Two speakers from L2-normalized embeddings.
+
+    A long recording is split by the main cut of the similarity graph. Comparing fragments
+    one by one would chain both voices together, because neighboring windows overlap.
+    """
+    count = len(vectors)
+    labels = np.zeros(count, dtype=int)
+    if count < 2:
+        return labels
+    if count < 12:
+        return _cluster_few(vectors)
+
+    similarity = vectors @ vectors.T
+    affinity = similarity.copy()
+    np.fill_diagonal(affinity, 0.0)
+    affinity[affinity < ABSORB_SIM] = 0.0
+    degree = affinity.sum(axis=1)
+    degree[degree == 0] = 1.0
+    scale = 1.0 / np.sqrt(degree)
+    laplacian = np.eye(count) - scale[:, None] * affinity * scale[None, :]
+    _, eigenvectors = np.linalg.eigh(laplacian)
+    split = eigenvectors[:, 1]
+    if float(split.max() - split.min()) < 1e-3:
+        return labels
+
+    labels = (split >= float(np.median(split))).astype(int)
+    if labels.min() == labels.max():
+        return np.zeros(count, dtype=int)
+    sides = [np.flatnonzero(labels == speaker).tolist() for speaker in (0, 1)]
+    if _group_similarity(similarity, sides[0], sides[1]) > SAME_SPEAKER_SIMILARITY:
+        return np.zeros(count, dtype=int)
+    return labels
+
+
+def speech_windows(segments: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Slice long turns into overlapping windows so a speaker change inside is visible."""
+    windows: list[tuple[float, float]] = []
+    for start, end in segments:
+        if end - start <= WINDOW_SEC + 0.2:
+            windows.append((start, end))
+            continue
+        position = start
+        covered = start
+        while position + WINDOW_SEC <= end + 1e-6:
+            windows.append((position, position + WINDOW_SEC))
+            covered = position + WINDOW_SEC
+            position += HOP_SEC
+        if end - covered > 0.3:
+            windows.append((max(start, end - WINDOW_SEC), end))
+    return windows
 
 
 def label_segments(
@@ -93,15 +157,8 @@ def label_segments(
         return [0] * len(segments)
 
     vectors = np.stack([vector for _, vector in usable])
-    raw = _kmeans2(vectors)
+    raw = cluster_two(vectors)
     if raw.min() == raw.max():
-        return [0] * len(segments)
-
-    centroid = []
-    for cluster in (0, 1):
-        mean = vectors[raw == cluster].mean(axis=0)
-        centroid.append(mean / np.linalg.norm(mean))
-    if float(centroid[0] @ centroid[1]) > SAME_SPEAKER_SIMILARITY:
         return [0] * len(segments)
 
     labels: list[int | None] = [None] * len(segments)
@@ -156,6 +213,104 @@ def merge_labeled(
     return merged
 
 
+def _speaker_frames(
+    windows: list[tuple[float, float]],
+    labels: list[int],
+    duration: float,
+    step: float = 0.1,
+) -> np.ndarray:
+    count = max(1, int(np.ceil(duration / step)))
+    votes = np.zeros((count, 2))
+    for (start, end), label in zip(windows, labels, strict=True):
+        i0 = max(0, int(start / step))
+        i1 = min(count, int(np.ceil(end / step)))
+        votes[i0:i1, label] += 1
+    frames = np.zeros(count, dtype=int)
+    spoken = votes.sum(axis=1) > 0
+    frames[spoken] = np.argmax(votes, axis=1)[spoken]
+    return frames
+
+
+def _turns_for_phrases(
+    phrases: list[tuple[float, float]],
+    frames: np.ndarray,
+    step: float = 0.1,
+) -> list[tuple[float, float, int]]:
+    """Keep a phrase whole when one voice dominates it. Split only a real change."""
+    turns: list[tuple[float, float, int]] = []
+    for start, end in phrases:
+        i0 = max(0, int(start / step))
+        i1 = min(len(frames), max(i0 + 1, int(np.ceil(end / step))))
+        piece = frames[i0:i1]
+        if len(piece) == 0:
+            continue
+        share = float(np.mean(piece == 1))
+        if share <= 0.3:
+            turns.append((start, end, 0))
+        elif share >= 0.7:
+            turns.append((start, end, 1))
+        else:
+            boundary = int(np.argmax(piece != piece[0]))
+            cut = start + boundary * step
+            if cut - start >= 0.4 and end - cut >= 0.4:
+                turns.append((start, cut, int(piece[0])))
+                turns.append((cut, end, int(piece[boundary])))
+            else:
+                turns.append((start, end, int(np.bincount(piece).argmax())))
+
+    folded: list[tuple[float, float, int]] = []
+    for start, end, label in turns:
+        if folded and end - start < 0.7 and start - folded[-1][1] < 0.5:
+            prev_start, _, prev_label = folded[-1]
+            folded[-1] = (prev_start, end, prev_label)
+        else:
+            folded.append((start, end, label))
+    return folded
+
+
+def timeline_turns(
+    windows: list[tuple[float, float]],
+    labels: list[int],
+    duration: float,
+    step: float = 0.1,
+) -> list[tuple[float, float, int]]:
+    """One speaker per moment: overlapping windows vote, then short flips are removed."""
+    count = max(1, int(np.ceil(duration / step)))
+    votes = np.zeros((count, 2))
+    for (start, end), label in zip(windows, labels, strict=True):
+        i0 = max(0, int(start / step))
+        i1 = min(count, int(np.ceil(end / step)))
+        votes[i0:i1, label] += 1
+
+    sequence = np.full(count, -1, dtype=int)
+    spoken = votes.sum(axis=1) > 0
+    sequence[spoken] = np.argmax(votes, axis=1)[spoken]
+
+    radius = int(0.3 / step)
+    cleaned = sequence.copy()
+    for index in range(count):
+        if sequence[index] < 0:
+            continue
+        around = sequence[max(0, index - radius) : index + radius + 1]
+        around = around[around >= 0]
+        if len(around) and np.mean(around == sequence[index]) < 0.5:
+            cleaned[index] = int(np.bincount(around).argmax())
+
+    turns: list[tuple[float, float, int]] = []
+    index = 0
+    while index < count:
+        if cleaned[index] < 0:
+            index += 1
+            continue
+        label = int(cleaned[index])
+        end = index
+        while end < count and cleaned[end] == label:
+            end += 1
+        turns.append((index * step, min(duration, end * step), label))
+        index = end
+    return turns
+
+
 def separate_speakers(path: Path | str, out_dir: Path | str) -> dict[SpeakerRole, Path]:
     """Write manager.wav and client.wav (16 kHz) with each speaker kept in time."""
     path = Path(path)
@@ -166,7 +321,8 @@ def separate_speakers(path: Path | str, out_dir: Path | str) -> dict[SpeakerRole
     audio = load_mono_16k(path)
     sf.write(mono_path, audio, SAMPLE_RATE, subtype="PCM_16")
 
-    segments = speech_segments(mono_path)
+    voiced = speech_segments(mono_path)
+    segments = speech_windows(voiced)
     embeddings = []
     for start, end in segments:
         i0 = int(round(start * SAMPLE_RATE))
@@ -174,7 +330,8 @@ def separate_speakers(path: Path | str, out_dir: Path | str) -> dict[SpeakerRole
         embeddings.append(_embed(audio[i0:i1]))
 
     labels = label_segments(segments, embeddings)
-    turns = merge_labeled(segments, labels)
+    frame = _speaker_frames(segments, labels, duration=len(audio) / SAMPLE_RATE)
+    turns = _turns_for_phrases(voiced, frame)
 
     written: dict[SpeakerRole, Path] = {}
     for role, speaker_id in ((SpeakerRole.MANAGER, 0), (SpeakerRole.CLIENT, 1)):
