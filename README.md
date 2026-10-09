@@ -34,6 +34,13 @@ python scripts/transcribe_file.py samples/test_call.wav     # первый за�
 python scripts/extract_file.py samples/test_call.wav --date 2026-10-09
 ```
 
+Интерфейс (API на :8000, Streamlit на http://localhost:8501), в другом терминале — демо-данные:
+
+```bash
+scripts/run.sh
+python scripts/seed_demo.py    # менеджер «Анна», клиент «ООО Ромашка», звонок из samples/
+```
+
 Ожидаемый результат на `samples/test_call.wav` (сценарий — `samples/test_call.txt`): 6 реплик и 3 договорённости — менеджер высылает КП до 16.10, клиент оплачивает 150000 RUB до 20.10, менеджер перезванивает 10.10.
 
 Важно:

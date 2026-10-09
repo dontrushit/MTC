@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     TELEGRAM_TOKEN: str = ""
     HF_TOKEN: str = ""
     TZ: str = "Europe/Moscow"
+    API_URL: str = "http://localhost:8000"
 
     @model_validator(mode="after")
     def _fill_whisper_model(self) -> "Settings":

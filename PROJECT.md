@@ -10,10 +10,12 @@
 2. Обработка аудио (ffmpeg, Silero VAD). ✅
 3. Расшифровка (mlx-whisper, `large-v3-turbo`). ✅
 4. Извлечение договорённостей (Ollama + qwen2.5, строгий JSON). ✅ код готов, ждёт модель в Ollama
-5. Карточка клиента и статусы договорённостей.
-6. Напоминания (Telegram-бот) и контроль выполнения.
+5. Диаризация моно — не начата (`MonoNotSupportedError`).
+6. API (FastAPI): карточка клиента, звонки, договорённости, статистика. ✅
+7. Интерфейс (Streamlit) поверх API. ✅
+8. Напоминания (Telegram-бот) и контроль выполнения.
 
-**Текущий этап:** этап 4 (извлечение). Конвейер: split → VAD → whisper → merge → `utterances` → Ollama JSON → проверка цитаты → `agreements` + `resolve_due`. **Принцип:** LLM извлекает факты из текста; Python детерминированно считает даты; каждая договорённость проверяется по цитате в реплике. Моно пока `MonoNotSupportedError` (diarization — этап 5).
+**Текущий этап:** этапы 6 и 7 ✅. Конвейер обработки звонка: split → VAD → whisper → merge → `utterances` → Ollama JSON → проверка цитаты → `agreements` + `resolve_due`. **Принцип:** LLM извлекает факты из текста; Python детерминированно считает даты; каждая договорённость проверяется по цитате в реплике. Моно пока `MonoNotSupportedError`. Очередь API — один поток: whisper и LLM не работают параллельно.
 
 ## Стек
 
@@ -45,15 +47,18 @@ app/
   asr/
     transcribe.py    # mlx-whisper + фильтр галлюцинаций
     merge.py         # merge_dialog по времени
+  agreements_service.py  # mark_overdue (API и будущий бот)
   extraction/        # schema, prompt, llm, dates, verify
-  api/               # FastAPI (будущее)
-  ui/                # Streamlit (будущее)
+  api/               # FastAPI: schemas, deps, worker, main
+  ui/                # Streamlit: Home.py, pages/, только HTTP
   bot/               # Telegram (будущее)
 scripts/
   check_env.py       # отчёт OK/FAIL по окружению
   make_test_call.py  # data/raw/test_call.wav (macOS say + ffmpeg)
   transcribe_file.py # CLI без БД
   extract_file.py    # транскрипция + извлечение без БД
+  run.sh             # uvicorn :8000 и streamlit :8501
+  seed_demo.py       # Анна, ООО Ромашка, test_call.wav через API
 tests/               # pytest (-m slow для полного пайплайна)
 data/raw/, data/processed/  # аудио и артефакты (в .gitignore)
 models/              # локальные веса whisper (в .gitignore)
@@ -85,7 +90,7 @@ models/              # локальные веса whisper (в .gitignore)
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-uv pip install -p .venv -e ".[core,dev,audio,asr,llm]"
+uv pip install -p .venv -e ".[core,dev,audio,asr,llm,api,ui]"
 # Положить mlx-whisper large-v3-turbo в models/whisper-large-v3-turbo, в .env:
 # WHISPER_MODEL=models/whisper-large-v3-turbo
 
@@ -104,4 +109,43 @@ python scripts/extract_file.py data/raw/test_call.wav --date 2026-10-09
 # Пайплайн по записи в БД:
 # from app.pipeline import process_call
 # process_call(call_id)
+
+# API и интерфейс (Ctrl+C останавливает оба):
+scripts/run.sh
+# API http://127.0.0.1:8000  UI http://127.0.0.1:8501
+python scripts/seed_demo.py
 ```
+
+## API
+
+База: `API_URL`, по умолчанию `http://localhost:8000`. `GET /agreements`, `GET /clients/{id}` и `GET /stats/managers` сначала вызывают `mark_overdue` (open с `due_date` < сегодня → overdue). `done_on_time` — доля выполненных в срок среди `done`, в процентах (`null`, если выполненных нет).
+
+- `POST /managers` — создать менеджера
+- `GET /managers` — список менеджеров
+- `POST /clients` — создать клиента
+- `GET /clients?q=` — поиск по имени, телефону или компании
+- `GET /clients/{id}` — карточка: данные, звонки (новые сверху), договорённости (open/overdue сверху, по сроку)
+- `POST /calls` — multipart `file`, `client_id`, `manager_id`, `started_at` (иначе время загрузки); файл в `data/raw/{call_id}_{имя}`, статус `new`, постановка в очередь
+- `GET /calls?client_id=&manager_id=&status=` — список звонков
+- `GET /calls/{id}` — звонок с репликами и договорённостями
+- `POST /calls/{id}/reprocess` — снова поставить звонок в очередь
+- `GET /calls/{id}/audio` — файл записи
+- `GET /agreements?status=&responsible=&manager_id=&client_id=&due_before=` — список договорённостей
+- `PATCH /agreements/{id}` — изменить `status`, `due_date`, `action`, `conditions`
+- `GET /stats/managers` — по каждому менеджеру: open, overdue, done, done_on_time %
+
+## UI
+
+Streamlit ходит только в API (`httpx`, без прямого доступа к БД). Страницы:
+
+- Главная — `app/ui/Home.py`
+- Загрузка — менеджер, клиент или новый клиент, файл, дата; статус обновляется каждые 3 с, пока не `extracted` / `error`
+- Клиенты — поиск и карточка: открытые договорённости (просроченные красным), история звонков, аудио, диалог, цитаты
+- Договорённости — фильтры (статус, ответственный, менеджер, срок до), смена статуса и срока в строке
+- Руководитель — таблица `/stats/managers` и все просроченные
+
+Статусы по-русски: open «открыта», overdue «просрочена», done «выполнена», cancelled «отменена»; звонок: new «новый», processing «обрабатывается», transcribed «расшифрован», extracted «извлечено», error «ошибка».
+
+## Статус
+
+Этапы 6 и 7 ✅. Дальше — Telegram-бот; диаризация моно по-прежнему не сделана.
