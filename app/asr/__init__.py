@@ -1,1 +1,1 @@
-"""Automatic speech recognition via mlx-whisper and optional pyannote diarization."""
+"""Speech recognition: mlx-whisper (Apple Silicon) or faster-whisper (CPU); pyannote for mono."""

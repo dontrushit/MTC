@@ -21,7 +21,7 @@
 |------|------------|
 | Python | 3.11 (не 3.13+: нет колёс torch/mlx/pyannote) |
 | БД | SQLite, SQLAlchemy 2.x |
-| ASR | mlx-whisper |
+| ASR | mlx-whisper (Mac M1–M4) или faster-whisper (CPU, Linux/Windows) — `ASR_BACKEND`, `app/asr/backends.py` |
 | Diarization | pyannote.audio 3.1 (опционально) |
 | LLM | Ollama (qwen2.5:14b / 7b) |
 | API | FastAPI |
@@ -73,7 +73,7 @@ models/              # локальные веса whisper (в .gitignore)
 ## Соглашения
 
 - Настройки: `app.config.settings`, файл `.env` (образец `.env.example`).
-- Whisper: `WHISPER_MODEL` — путь к локальной mlx-модели (например `models/whisper-large-v3-turbo`) или HF repo id.
+- Whisper: `ASR_BACKEND` (mlx | faster, по умолчанию по платформе) и `WHISPER_MODEL` (пусто = mlx large-v3-turbo / faster small; путь к локальной модели или HF id). Установка на Linux — README.md.
 - БД по умолчанию: `sqlite:///data/mtc.db`; инициализация: `init_db()` из `app.db.session`.
 - Сессия: контекстный менеджер `get_session()`.
 - Линтер: `ruff check .` (line-length 100).

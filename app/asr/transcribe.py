@@ -1,16 +1,15 @@
-"""Channel-wise ASR with mlx-whisper and hallucination filtering."""
+"""Channel-wise ASR (mlx-whisper or faster-whisper) with hallucination filtering."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
-import mlx_whisper
 import numpy as np
 import soundfile as sf
 
+from app.asr.backends import transcribe_chunk
 from app.audio.vad import speech_segments
-from app.config import settings
 from app.db.models import SpeakerRole
 
 SAMPLE_RATE = 16000
@@ -57,9 +56,9 @@ def _keep_whisper_segment(raw: dict) -> bool:
     return True
 
 
-def _text_from_whisper_result(result: dict) -> str:
+def _text_from_whisper_segments(raw_segments: list[dict]) -> str:
     parts: list[str] = []
-    for raw in result.get("segments") or []:
+    for raw in raw_segments:
         if not _keep_whisper_segment(raw):
             continue
         parts.append((raw.get("text") or "").strip())
@@ -87,13 +86,7 @@ def transcribe_channel(wav_path: Path | str, speaker: SpeakerRole) -> list[Segme
         i1 = int(round(pad_end * SAMPLE_RATE))
         chunk = np.ascontiguousarray(audio[i0:i1], dtype=np.float32)
 
-        result = mlx_whisper.transcribe(
-            chunk,
-            path_or_hf_repo=settings.WHISPER_MODEL,
-            language="ru",
-            condition_on_previous_text=False,
-        )
-        text = _text_from_whisper_result(result)
+        text = _text_from_whisper_segments(transcribe_chunk(chunk))
         if not text:
             continue
         segments.append(
