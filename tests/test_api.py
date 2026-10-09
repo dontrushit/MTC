@@ -437,3 +437,64 @@ def test_startup_requeues_processing_calls(tmp_path: Path, monkeypatch: pytest.M
     with TestClient(app):
         pass
     assert submitted == [call_id]
+
+
+def test_update_client(api: dict) -> None:
+    customer = _customer(api)
+    patched = api["client"].patch(
+        f"/clients/{customer['id']}",
+        json={"name": "Мария", "last_name": "Иванова", "phone": "+79001112233"},
+    )
+    assert patched.status_code == 200
+    body = patched.json()
+    assert body["name"] == "Мария"
+    assert body["last_name"] == "Иванова"
+    assert body["phone"] == "+79001112233"
+
+    blank = api["client"].patch(
+        f"/clients/{customer['id']}",
+        json={"name": " ", "last_name": "Иванова", "phone": "+79001112233"},
+    )
+    assert blank.status_code == 400
+    missing = api["client"].patch(
+        "/clients/99999",
+        json={"name": "А", "last_name": "Б", "phone": "1"},
+    )
+    assert missing.status_code == 404
+
+
+def test_delete_client_removes_calls_and_file(api: dict) -> None:
+    manager = _manager(api)
+    customer = _customer(api)
+    uploaded = api["client"].post(
+        "/calls",
+        data={"client_id": str(customer["id"]), "manager_id": str(manager["id"])},
+        files={"file": ("talk.wav", b"RIFFdemo", "audio/wav")},
+    )
+    assert uploaded.status_code == 200
+    call_id = uploaded.json()["id"]
+    audio_path = Path(uploaded.json()["audio_path"])
+    assert audio_path.is_file()
+
+    removed = api["client"].delete(f"/clients/{customer['id']}")
+    assert removed.status_code == 204
+    assert api["client"].get(f"/clients/{customer['id']}").status_code == 404
+    assert api["client"].get(f"/calls/{call_id}").status_code == 404
+    assert not audio_path.exists()
+
+
+def test_delete_one_call(api: dict) -> None:
+    manager = _manager(api)
+    customer = _customer(api)
+    uploaded = api["client"].post(
+        "/calls",
+        data={"client_id": str(customer["id"]), "manager_id": str(manager["id"])},
+        files={"file": ("one.wav", b"RIFFone", "audio/wav")},
+    )
+    call_id = uploaded.json()["id"]
+    removed = api["client"].delete(f"/calls/{call_id}")
+    assert removed.status_code == 204
+    assert api["client"].get(f"/calls/{call_id}").status_code == 404
+    assert api["client"].get(f"/clients/{customer['id']}").status_code == 200
+    assert api["client"].delete("/calls/99999").status_code == 404
+

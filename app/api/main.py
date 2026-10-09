@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import shutil
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.agreements_service import mark_overdue
@@ -37,6 +38,7 @@ from app.db.models import (
     CallStatus,
     Client,
     Manager,
+    Utterance,
 )
 from app.db.session import init_db
 
@@ -118,11 +120,8 @@ def list_managers(db: Session = Depends(get_db)) -> list[Manager]:
 
 @app.post("/clients", response_model=ClientOut)
 def create_client(payload: ClientIn, db: Session = Depends(get_db)) -> Client:
-    client = Client(
-        name=payload.name.strip(),
-        last_name=payload.last_name.strip(),
-        phone=payload.phone.strip(),
-    )
+    name, last_name, phone = _client_names(payload)
+    client = Client(name=name, last_name=last_name, phone=phone)
     db.add(client)
     db.commit()
     db.refresh(client)
@@ -143,6 +142,60 @@ def list_clients(q: str | None = None, db: Session = Depends(get_db)) -> list[Cl
         if needle in haystack.casefold():
             matched.append(client)
     return matched
+
+
+def _client_names(payload: ClientIn) -> tuple[str, str, str]:
+    name = payload.name.strip()
+    last_name = payload.last_name.strip()
+    phone = payload.phone.strip()
+    if not name or not last_name or not phone:
+        raise HTTPException(status_code=400, detail="Нужны имя, фамилия и номер")
+    return name, last_name, phone
+
+
+def _forget_saved(audio_path: str, call_id: int) -> None:
+    path = Path(audio_path)
+    if path.is_file():
+        path.unlink()
+    processed = settings.DATA_DIR / "processed" / str(call_id)
+    if processed.is_dir():
+        shutil.rmtree(processed, ignore_errors=True)
+
+
+def _remove_call(db: Session, call: Call) -> None:
+    db.execute(delete(Utterance).where(Utterance.call_id == call.id))
+    db.execute(delete(Agreement).where(Agreement.call_id == call.id))
+    db.delete(call)
+
+
+@app.patch("/clients/{client_id}", response_model=ClientOut)
+def update_client(client_id: int, payload: ClientIn, db: Session = Depends(get_db)) -> Client:
+    client = db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    name, last_name, phone = _client_names(payload)
+    client.name = name
+    client.last_name = last_name
+    client.phone = phone
+    db.commit()
+    db.refresh(client)
+    return client
+
+
+@app.delete("/clients/{client_id}", status_code=204)
+def delete_client(client_id: int, db: Session = Depends(get_db)) -> Response:
+    client = db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    calls = list(client.calls)
+    saved = [(call.audio_path, call.id) for call in calls]
+    for call in calls:
+        _remove_call(db, call)
+    db.delete(client)
+    db.commit()
+    for audio_path, call_id in saved:
+        _forget_saved(audio_path, call_id)
+    return Response(status_code=204)
 
 
 @app.get("/clients/{client_id}", response_model=ClientDetail)
@@ -253,6 +306,18 @@ def reprocess_call(call_id: int, db: Session = Depends(get_db)) -> Call:
     db.refresh(call)
     worker.submit_call(call.id)
     return call
+
+
+@app.delete("/calls/{call_id}", status_code=204)
+def delete_call(call_id: int, db: Session = Depends(get_db)) -> Response:
+    call = db.get(Call, call_id)
+    if call is None:
+        raise HTTPException(status_code=404, detail="Звонок не найден")
+    saved = (call.audio_path, call.id)
+    _remove_call(db, call)
+    db.commit()
+    _forget_saved(*saved)
+    return Response(status_code=204)
 
 
 @app.get("/calls/{call_id}/audio")

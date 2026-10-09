@@ -74,6 +74,10 @@ def api_patch(path: str, payload: dict[str, Any]) -> Any:
     return _request("PATCH", path, json=payload).json()
 
 
+def api_delete(path: str) -> None:
+    _request("DELETE", path)
+
+
 def api_get_bytes(path: str) -> tuple[bytes, str]:
     response = _request("GET", path)
     media = response.headers.get("content-type", "application/octet-stream").split(";")[0]
