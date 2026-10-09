@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app.audio.diarize import label_segments, merge_labeled
+from app.audio.diarize import label_segments, merge_labeled, speech_windows
 from app.audio.layout import is_separated_stereo
 
 
@@ -42,6 +42,29 @@ def test_short_segment_follows_neighbor() -> None:
     segments = [(0.0, 2.0), (2.2, 2.5), (3.0, 5.0)]
     labels = label_segments(segments, [_vec(1), None, _vec(2)])
     assert labels == [0, 1, 1]
+
+
+def test_outlier_joins_nearest_voice_instead_of_becoming_one() -> None:
+    voice_a, voice_b = _vec(0), _vec(1)
+    # Closer to B than to A, but not close enough to define its own voice.
+    outlier = voice_b * 0.5 + _vec(2) * 0.5
+    outlier = outlier / np.linalg.norm(outlier)
+    segments = [(i, i + 1.5) for i in range(6)]
+    labels = label_segments(
+        segments,
+        [voice_a, voice_a, voice_a, voice_b, voice_b, outlier],
+    )
+    assert labels[:3] == [0, 0, 0]
+    assert labels[3] == labels[4] == 1
+    assert labels[5] == 1
+
+
+def test_long_turn_is_split_into_windows() -> None:
+    windows = speech_windows([(0.0, 5.0), (6.0, 6.8)])
+    assert windows[0] == (0.0, 1.2)
+    assert windows[-1] == (6.0, 6.8)
+    assert all(end - start <= 1.2 + 1e-6 for start, end in windows)
+    assert windows[-2][1] > 4.5
 
 
 def test_merge_same_speaker_across_short_gap() -> None:

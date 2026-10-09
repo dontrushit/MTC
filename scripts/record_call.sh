@@ -9,7 +9,8 @@ DEVICE="${AUDIO_DEVICE:-0}"
 OUT="data/raw/call_$(date +%Y%m%d_%H%M%S).wav"
 
 echo "Микрофон: устройство ${DEVICE} (другое — AUDIO_DEVICE=1 scripts/record_call.sh)"
-ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | sed -n '/audio devices:/,$p' | sed '/video devices:/d'
+ffmpeg -hide_banner -f avfoundation -list_devices true -i "" 2>&1 \
+  | sed -n '/audio devices:/,$p' | sed '/Error/d;/in#/d' || true
 echo
 echo "Позвоните и включите громкую связь, телефон рядом с компьютером."
 echo "Говорите по очереди. Остановка записи: Ctrl+C."
