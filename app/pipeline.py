@@ -16,6 +16,7 @@ from app.config import settings
 from app.db.models import (
     Agreement,
     AgreementResponsible,
+    AgreementStatus,
     Call,
     CallStatus,
     SpeakerRole,
@@ -24,7 +25,7 @@ from app.db.models import (
 from app.db.session import SessionLocal
 from app.extraction.dates import resolve_due
 from app.extraction.llm import extract
-from app.extraction.verify import verify_agreements
+from app.extraction.verify import normalize_quote, verify_agreements
 
 
 def process_call(call_id: int) -> None:
@@ -110,8 +111,27 @@ def extract_call(call_id: int) -> None:
         result = extract(utterances, call.started_at)
         verified = verify_agreements(utterances, result.agreements)
 
-        session.execute(delete(Agreement).where(Agreement.call_id == call_id))
+        existing = list(
+            session.scalars(select(Agreement).where(Agreement.call_id == call_id)).all()
+        )
+        reviewed_keys = {
+            (a.responsible, normalize_quote(a.quote))
+            for a in existing
+            if a.status != AgreementStatus.OPEN
+        }
+
+        session.execute(
+            delete(Agreement).where(
+                Agreement.call_id == call_id,
+                Agreement.status == AgreementStatus.OPEN,
+            )
+        )
+
         for ag in verified:
+            resp = AgreementResponsible(ag.responsible)
+            key = (resp, normalize_quote(ag.quote))
+            if key in reviewed_keys:
+                continue
             due_text = ag.due_text or ""
             due_date = resolve_due(ag.due_text, call.started_at, tz)
             session.add(
@@ -119,7 +139,7 @@ def extract_call(call_id: int) -> None:
                     call_id=call_id,
                     client_id=call.client_id,
                     action=ag.action,
-                    responsible=AgreementResponsible(ag.responsible),
+                    responsible=resp,
                     due_date=due_date,
                     due_text=due_text,
                     amount=ag.amount,

@@ -15,11 +15,16 @@ _FUZZY_RATIO = 0.85
 _NEIGHBOR_RANGE = 2
 
 
-def _normalize(text: str) -> str:
+def normalize_quote(text: str) -> str:
+    """Normalize quote text for comparison keys."""
     t = text.lower().replace("ё", "е")
     t = re.sub(r"[^\w\s]", " ", t, flags=re.UNICODE)
     t = re.sub(r"\s+", " ", t).strip()
     return t
+
+
+def _normalize(text: str) -> str:
+    return normalize_quote(text)
 
 
 def _fuzzy_contains(haystack: str, needle: str) -> bool:

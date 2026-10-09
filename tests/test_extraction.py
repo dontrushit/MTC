@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -58,6 +59,24 @@ def test_extract_primary_fails_uses_fallback(monkeypatch: pytest.MonkeyPatch) ->
         model = kwargs.get("model")
         if model == "primary-model":
             raise ConnectionError("down")
+        return MagicMock(message=MagicMock(content=VALID_JSON))
+
+    mock_client.chat.side_effect = chat
+    monkeypatch.setattr("app.extraction.llm.ollama.Client", lambda **_: mock_client)
+    monkeypatch.setattr("app.extraction.llm.settings.OLLAMA_MODEL", "primary-model")
+    monkeypatch.setattr("app.extraction.llm.settings.OLLAMA_FALLBACK_MODEL", "fallback-model")
+
+    result = extract(_utterances(), datetime.now(UTC))
+    assert result.agreements == []
+
+
+def test_extract_primary_timeout_uses_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = MagicMock()
+
+    def chat(**kwargs: object) -> MagicMock:
+        model = kwargs.get("model")
+        if model == "primary-model":
+            raise httpx.TimeoutException("timed out")
         return MagicMock(message=MagicMock(content=VALID_JSON))
 
     mock_client.chat.side_effect = chat

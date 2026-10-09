@@ -7,24 +7,33 @@ import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from app.extraction.numerals import normalize_spoken_numerals
+
 _WEEKDAYS: dict[str, int] = {
     "понедельник": 0,
     "понедельника": 0,
+    "понедельнику": 0,
     "вторник": 1,
     "вторника": 1,
+    "вторнику": 1,
     "среда": 2,
     "среды": 2,
     "среду": 2,
+    "среде": 2,
     "четверг": 3,
     "четверга": 3,
+    "четвергу": 3,
     "пятница": 4,
     "пятницы": 4,
     "пятницу": 4,
+    "пятнице": 4,
     "суббота": 5,
     "субботы": 5,
     "субботу": 5,
+    "субботе": 5,
     "воскресенье": 6,
     "воскресенья": 6,
+    "воскресенью": 6,
 }
 
 _MONTHS_GEN: dict[str, int] = {
@@ -65,12 +74,49 @@ def _friday_of_week(ref_d: date, *, next_week: bool) -> date:
     return monday + timedelta(days=4)
 
 
+def _sunday_of_week(ref_d: date) -> date:
+    return ref_d + timedelta(days=(6 - ref_d.weekday()))
+
+
+def _monday_next_week(ref_d: date) -> date:
+    monday = ref_d - timedelta(days=ref_d.weekday())
+    return monday + timedelta(days=7)
+
+
+def _weekday_in_next_week(ref_d: date, weekday: int) -> date:
+    return _monday_next_week(ref_d) + timedelta(days=weekday)
+
+
+def _day_of_month(ref_d: date, day: int) -> date | None:
+    if day < 1 or day > 31:
+        return None
+    if day > ref_d.day:
+        year, month = ref_d.year, ref_d.month
+    else:
+        month = ref_d.month + 1
+        year = ref_d.year
+        if month > 12:
+            month = 1
+            year += 1
+    last = calendar.monthrange(year, month)[1]
+    day = min(day, last)
+    return date(year, month, day)
+
+
+def _add_months(ref_d: date, months: int) -> date:
+    month = ref_d.month + months
+    year = ref_d.year + (month - 1) // 12
+    month = (month - 1) % 12 + 1
+    last = calendar.monthrange(year, month)[1]
+    return date(year, month, min(ref_d.day, last))
+
+
 def resolve_due(due_text: str | None, ref: datetime, tz: ZoneInfo) -> date | None:
     """Parse due_text relative to call start; return None if unrecognized."""
     if not due_text or not due_text.strip():
         return None
 
-    text = due_text.strip().lower()
+    text = normalize_spoken_numerals(due_text.strip())
     text = re.sub(r"\s+", " ", text)
     ref_d = _ref_date(ref, tz)
 
@@ -81,42 +127,50 @@ def resolve_due(due_text: str | None, ref: datetime, tz: ZoneInfo) -> date | Non
     if re.fullmatch(r"послезавтра", text):
         return ref_d + timedelta(days=2)
 
-    weekday_names = (
-        "понедельник",
-        "вторник",
-        "среда",
-        "среду",
-        "среды",
-        "четверг",
-        "пятница",
-        "пятницу",
-        "пятницы",
-        "суббота",
-        "субботу",
-        "субботы",
-        "воскресенье",
-        "воскресенья",
+    if re.search(r"в\s+течение\s+дня", text):
+        return ref_d
+
+    if re.search(r"в\s+начале\s+следующей\s+недел", text):
+        return _monday_next_week(ref_d)
+
+    m = re.search(
+        r"на\s+следующей\s+недел[еи]\s+(?:в\s+)?("
+        + "|".join(re.escape(k) for k in _WEEKDAYS)
+        + r")\b",
+        text,
     )
+    if m:
+        wd = _WEEKDAYS[m.group(1)]
+        return _weekday_in_next_week(ref_d, wd)
+
+    if re.search(r"(?:к|до)\s+конц[ау]\s+недел", text):
+        return _sunday_of_week(ref_d)
+
+    if re.search(r"в\s+течение\s+недел", text):
+        return _next_weekday_after(ref_d, 4)
+
+    if re.search(r"(?:к|до)\s+конц[ау]\s+месяц", text):
+        last = calendar.monthrange(ref_d.year, ref_d.month)[1]
+        return date(ref_d.year, ref_d.month, last)
+
+    weekday_names = tuple(_WEEKDAYS.keys())
     for name in weekday_names:
         if re.search(rf"(?:до|к|в)\s+{re.escape(name)}\b", text):
             return _next_weekday_after(ref_d, _WEEKDAYS[name])
 
-    m = re.search(r"(?:до|к)\s+(\d{1,2})\s*числ", text)
+    m = re.search(r"(?:до|к)\s+(\d{1,2})(?:\s*числ)?\b", text)
     if m:
-        day = int(m.group(1))
-        if day < 1 or day > 31:
-            return None
-        if day > ref_d.day:
-            year, month = ref_d.year, ref_d.month
-        else:
-            month = ref_d.month + 1
-            year = ref_d.year
-            if month > 12:
-                month = 1
-                year += 1
-        last = calendar.monthrange(year, month)[1]
-        day = min(day, last)
-        return date(year, month, day)
+        return _day_of_month(ref_d, int(m.group(1)))
+
+    m = re.search(r"\b(\d{1,2})\s+числ\w*\b", text)
+    if m:
+        return _day_of_month(ref_d, int(m.group(1)))
+
+    if re.search(r"через\s+полгода", text):
+        return _add_months(ref_d, 6)
+
+    if re.search(r"через\s+месяц\b", text):
+        return _add_months(ref_d, 1)
 
     m = re.search(
         r"через\s+(\d+)\s+(день|дня|дней|недел[июи]|месяц|месяца|месяцев)",
@@ -130,18 +184,13 @@ def resolve_due(due_text: str | None, ref: datetime, tz: ZoneInfo) -> date | Non
         if unit.startswith("недел"):
             return ref_d + timedelta(weeks=n)
         if unit.startswith("месяц"):
-            month = ref_d.month + n
-            year = ref_d.year + (month - 1) // 12
-            month = (month - 1) % 12 + 1
-            last = calendar.monthrange(year, month)[1]
-            return date(year, month, min(ref_d.day, last))
+            return _add_months(ref_d, n)
 
     if re.search(r"через\s+неделю", text):
         return ref_d + timedelta(weeks=1)
 
     if re.search(r"до\s+конца\s+недел", text):
-        # Sunday of the current week
-        return ref_d + timedelta(days=(6 - ref_d.weekday()))
+        return _sunday_of_week(ref_d)
 
     if re.search(r"до\s+конца\s+месяц", text):
         last = calendar.monthrange(ref_d.year, ref_d.month)[1]

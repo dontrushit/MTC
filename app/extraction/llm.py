@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+import httpx
 import ollama
 from pydantic import ValidationError
 
@@ -14,6 +15,16 @@ from app.extraction.prompt import build_messages
 from app.extraction.schema import ExtractionResult
 
 logger = logging.getLogger(__name__)
+
+_OLLAMA_TIMEOUT = 180
+
+_NETWORK_ERRORS = (
+    ollama.ResponseError,
+    ConnectionError,
+    TimeoutError,
+    httpx.TimeoutException,
+    httpx.ConnectError,
+)
 
 
 class ExtractionError(Exception):
@@ -41,7 +52,7 @@ def _try_parse(raw: str) -> ExtractionResult:
 def extract(utterances: list[Utterance], call_started_at: datetime) -> ExtractionResult:
     """Extract agreements from utterances via Ollama with validation retry and fallback."""
     messages = build_messages(utterances, call_started_at)
-    client = ollama.Client(host=settings.OLLAMA_URL)
+    client = ollama.Client(host=settings.OLLAMA_URL, timeout=_OLLAMA_TIMEOUT)
 
     def run_model(model: str, *, allow_retry: bool) -> ExtractionResult:
         last_err: Exception | None = None
@@ -58,7 +69,7 @@ def extract(utterances: list[Utterance], call_started_at: datetime) -> Extractio
                     attempt + 1,
                     exc,
                 )
-            except (ollama.ResponseError, ConnectionError, TimeoutError) as exc:
+            except _NETWORK_ERRORS as exc:
                 last_err = exc
                 logger.warning("Ollama request failed (model=%s): %s", model, exc)
                 break
