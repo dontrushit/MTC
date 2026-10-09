@@ -51,6 +51,9 @@ _MONTHS_GEN: dict[str, int] = {
     "декабря": 12,
 }
 
+_MONTHS_ALT = "|".join(_MONTHS_GEN)
+_WEEKDAY_ALT = "|".join(re.escape(k) for k in _WEEKDAYS)
+
 
 def _ref_date(ref: datetime, tz: ZoneInfo) -> date:
     if ref.tzinfo is None:
@@ -111,6 +114,73 @@ def _add_months(ref_d: date, months: int) -> date:
     return date(year, month, min(ref_d.day, last))
 
 
+def _text_has_month(text: str) -> bool:
+    return bool(re.search(rf"\b(?:{_MONTHS_ALT})\b", text))
+
+
+def _date_from_day_month(day: int, month: int, ref_d: date) -> date | None:
+    if day < 1 or day > 31:
+        return None
+    year = ref_d.year
+    try:
+        candidate = date(year, month, day)
+    except ValueError:
+        return None
+    if candidate <= ref_d:
+        try:
+            candidate = date(year + 1, month, day)
+        except ValueError:
+            return None
+    return candidate
+
+
+def _parse_explicit_month(text: str, ref_d: date) -> date | None:
+    """Parse phrases with a month name; None if month present but phrase is invalid."""
+    if not _text_has_month(text):
+        return None
+
+    m = re.search(rf"(?:до|к)\s*(\d{{1,2}})\s+(?:{_MONTHS_ALT})\b", text)
+    if m:
+        month_word = re.search(rf"\b(?:{_MONTHS_ALT})\b", text[m.start() :])
+        if month_word is None:
+            return None
+        month = _MONTHS_GEN[month_word.group(0)]
+        return _date_from_day_month(int(m.group(1)), month, ref_d)
+
+    m = re.search(rf"(\d{{1,2}})\s+(?:{_MONTHS_ALT})\b", text)
+    if m:
+        month_word = re.search(rf"\b(?:{_MONTHS_ALT})\b", text[m.start() :])
+        if month_word is None:
+            return None
+        month = _MONTHS_GEN[month_word.group(0)]
+        return _date_from_day_month(int(m.group(1)), month, ref_d)
+
+    return None
+
+
+def _weekday_from_token(token: str) -> int | None:
+    token = token.lower()
+    if token in _WEEKDAYS:
+        return _WEEKDAYS[token]
+    for name, wd in _WEEKDAYS.items():
+        if token.startswith(name[:4]) or name.startswith(token[:4]):
+            return wd
+    return None
+
+
+def _this_or_next_weekday(ref_d: date, weekday: int) -> date:
+    days_ahead = weekday - ref_d.weekday()
+    if days_ahead <= 0:
+        days_ahead += 7
+    return ref_d + timedelta(days=days_ahead)
+
+
+def _end_of_quarter(ref_d: date) -> date:
+    q_end_month = ((ref_d.month - 1) // 3 + 1) * 3
+    last = calendar.monthrange(ref_d.year, q_end_month)[1]
+    return date(ref_d.year, q_end_month, last)
+
+
 def resolve_due(due_text: str | None, ref: datetime, tz: ZoneInfo) -> date | None:
     """Parse due_text relative to call start; return None if unrecognized."""
     if not due_text or not due_text.strip():
@@ -120,12 +190,16 @@ def resolve_due(due_text: str | None, ref: datetime, tz: ZoneInfo) -> date | Non
     text = re.sub(r"\s+", " ", text)
     ref_d = _ref_date(ref, tz)
 
-    if re.fullmatch(r"сегодня", text):
+    if re.search(r"\bсегодня\b", text):
         return ref_d
-    if re.fullmatch(r"завтра", text):
+    if re.search(r"\bзавтра\b", text):
         return ref_d + timedelta(days=1)
-    if re.fullmatch(r"послезавтра", text):
+    if re.search(r"\bпослезавтра\b", text):
         return ref_d + timedelta(days=2)
+
+    if _text_has_month(text):
+        month_date = _parse_explicit_month(text, ref_d)
+        return month_date
 
     if re.search(r"в\s+течение\s+дня", text):
         return ref_d
@@ -152,6 +226,24 @@ def resolve_due(due_text: str | None, ref: datetime, tz: ZoneInfo) -> date | Non
     if re.search(r"(?:к|до)\s+конц[ау]\s+месяц", text):
         last = calendar.monthrange(ref_d.year, ref_d.month)[1]
         return date(ref_d.year, ref_d.month, last)
+
+    if re.search(r"(?:к|до)\s+конц[ау]\s+год", text):
+        return date(ref_d.year, 12, 31)
+
+    if re.search(r"(?:к|до)\s+конц[ау]\s+квартал", text):
+        return _end_of_quarter(ref_d)
+
+    m = re.search(rf"в\s+следующ(?:ую|ий|ее|ей)\s+({_WEEKDAY_ALT})\b", text)
+    if m:
+        wd = _weekday_from_token(m.group(1))
+        if wd is not None:
+            return _next_weekday_after(ref_d, wd)
+
+    m = re.search(rf"в\s+эту\s+({_WEEKDAY_ALT})\b", text)
+    if m:
+        wd = _weekday_from_token(m.group(1))
+        if wd is not None:
+            return _this_or_next_weekday(ref_d, wd)
 
     weekday_names = tuple(_WEEKDAYS.keys())
     for name in weekday_names:
@@ -200,19 +292,6 @@ def resolve_due(due_text: str | None, ref: datetime, tz: ZoneInfo) -> date | Non
         return _friday_of_week(ref_d, next_week=True)
     if re.search(r"на\s+этой\s+недел", text):
         return _friday_of_week(ref_d, next_week=False)
-
-    m = re.search(r"(\d{1,2})\s+(" + "|".join(_MONTHS_GEN) + r")", text)
-    if m:
-        day = int(m.group(1))
-        month = _MONTHS_GEN[m.group(2)]
-        year = ref_d.year
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            return None
-        if candidate <= ref_d:
-            candidate = date(year + 1, month, day)
-        return candidate
 
     m = re.search(r"(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?", text)
     if m:
