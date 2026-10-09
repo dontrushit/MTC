@@ -19,7 +19,7 @@
 
 | Слой | Технологии |
 |------|------------|
-| Python | 3.11+ |
+| Python | 3.11 (не 3.13+: нет колёс torch/mlx/pyannote) |
 | БД | SQLite, SQLAlchemy 2.x |
 | ASR | mlx-whisper |
 | Diarization | pyannote.audio 3.1 (опционально) |
@@ -71,7 +71,7 @@ data/raw/, data/processed/  # аудио и артефакты (в .gitignore)
 ## Быстрый старт (этап 0–1)
 
 ```bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[core,dev]"
 ruff check .
