@@ -19,12 +19,12 @@ def test_merge_sorts_by_start() -> None:
 def test_merge_same_speaker_within_gap() -> None:
     manager = [
         _seg(SpeakerRole.MANAGER, 0.0, 1.0, "первая"),
-        _seg(SpeakerRole.MANAGER, 1.5, 2.5, "вторая"),
+        _seg(SpeakerRole.MANAGER, 1.4, 2.4, "вторая"),
     ]
     merged = merge_dialog(manager, [])
     assert len(merged) == 1
     assert merged[0].start == 0.0
-    assert merged[0].end == 2.5
+    assert merged[0].end == 2.4
     assert merged[0].text == "первая вторая"
 
 
@@ -35,10 +35,10 @@ def test_merge_does_not_merge_different_speakers() -> None:
     assert len(merged) == 2
 
 
-def test_merge_gap_at_least_one_second_not_merged() -> None:
+def test_merge_gap_at_least_half_second_not_merged() -> None:
     manager = [
         _seg(SpeakerRole.MANAGER, 0.0, 1.0, "one"),
-        _seg(SpeakerRole.MANAGER, 2.0, 3.0, "two"),
+        _seg(SpeakerRole.MANAGER, 1.6, 2.6, "two"),
     ]
     merged = merge_dialog(manager, [])
     assert len(merged) == 2

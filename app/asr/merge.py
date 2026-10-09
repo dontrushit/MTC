@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from app.asr.transcribe import Segment
 
-MERGE_GAP_SEC = 1.0
+MERGE_GAP_SEC = 0.5
 
 
 def merge_dialog(
     segments_manager: list[Segment],
     segments_client: list[Segment],
 ) -> list[Segment]:
-    """Sort by start time; merge consecutive same-speaker turns if pause < 1 s."""
+    """Sort by start time; merge consecutive same-speaker turns if pause < 0.5 s."""
     combined = sorted(
         [*segments_manager, *segments_client],
         key=lambda s: (s.start, s.end),
