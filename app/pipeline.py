@@ -9,7 +9,7 @@ from sqlalchemy import delete, select
 
 from app.asr.merge import merge_dialog
 from app.asr.transcribe import transcribe_channel
-from app.audio.preprocess import split_channels
+from app.audio.preprocess import prepare_channels
 from app.audio.probe import probe
 from app.audio.vad import speech_segments
 from app.config import settings
@@ -47,7 +47,7 @@ def process_call(call_id: int) -> None:
         call.channels = info.channels
 
         out_dir = settings.DATA_DIR / "processed" / str(call_id)
-        channel_paths = split_channels(audio_path, out_dir)
+        channel_paths = prepare_channels(audio_path, out_dir)
 
         speech_segments(channel_paths[SpeakerRole.MANAGER])
         speech_segments(channel_paths[SpeakerRole.CLIENT])

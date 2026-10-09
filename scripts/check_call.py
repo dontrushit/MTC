@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from extract_file import _parse_date  # noqa: E402
 from transcribe_file import _format_ts, transcribe_path  # noqa: E402
 
+from app.audio.layout import is_separated_stereo  # noqa: E402
 from app.audio.probe import probe  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.db.models import SpeakerRole, Utterance  # noqa: E402
@@ -55,11 +56,14 @@ def main() -> int:
         return 1
 
     info = probe(args.audio)
-    print(f"Файл: {args.audio.name} | каналов: {info.channels} | "
-          f"длительность: {info.duration_sec:.0f} с | {info.sample_rate} Гц")
-    if info.channels != 2:
-        print("Запись не стерео. Нужен этап 5 (разделение голосов) — сообщите в чат проверки.")
-        return 2
+    separated = is_separated_stereo(args.audio)
+    kind = "стерео, каналы разделены" if separated else "обычная запись, голоса разделяются"
+    print(
+        f"Файл: {args.audio.name} | каналов: {info.channels} ({kind}) | "
+        f"длительность: {info.duration_sec:.0f} с | {info.sample_rate} Гц"
+    )
+    if not separated:
+        print("Первый говорящий считается менеджером. Если роли перепутаны, добавьте --swap.")
 
     started = _parse_date(args.date) if args.date else datetime.now(UTC)
     tz = ZoneInfo(settings.TZ)

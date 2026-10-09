@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Transcribe a stereo call file to stdout (no database)."""
+"""Transcribe a call file to stdout (no database). Stereo or a mixed phone recording."""
 
 from __future__ import annotations
 
@@ -9,8 +9,7 @@ from pathlib import Path
 
 from app.asr.merge import merge_dialog
 from app.asr.transcribe import transcribe_channel
-from app.audio.preprocess import split_channels
-from app.audio.probe import probe
+from app.audio.preprocess import prepare_channels
 from app.audio.vad import speech_segments
 from app.config import settings
 from app.db.models import SpeakerRole
@@ -23,13 +22,8 @@ def _format_ts(sec: float) -> str:
 
 
 def transcribe_path(path: Path) -> list[tuple[float, SpeakerRole, str]]:
-    info = probe(path)
-    if info.channels < 2:
-        print(f"Error: expected stereo audio, got {info.channels} channel(s).", file=sys.stderr)
-        raise SystemExit(1)
-
     out_dir = settings.DATA_DIR / "processed" / f"cli_{path.stem}"
-    channel_paths = split_channels(path, out_dir)
+    channel_paths = prepare_channels(path, out_dir)
 
     speech_segments(channel_paths[SpeakerRole.MANAGER])
     speech_segments(channel_paths[SpeakerRole.CLIENT])
