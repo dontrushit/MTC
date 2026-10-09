@@ -1,11 +1,17 @@
-"""Split stereo call recordings into per-speaker mono WAV files."""
+"""Split a call into per-speaker mono WAV files.
+
+Real stereo (different channels) is split directly. A normal phone recording —
+one mixed channel, or two identical channels — is separated by voice.
+"""
 
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
 
+from app.audio.diarize import separate_speakers
 from app.audio.exceptions import MonoNotSupportedError
+from app.audio.layout import is_separated_stereo
 from app.audio.probe import probe
 from app.db.models import SpeakerRole
 
@@ -55,3 +61,11 @@ def split_channels(path: Path | str, out_dir: Path | str) -> dict[SpeakerRole, P
         SpeakerRole.MANAGER: manager_path,
         SpeakerRole.CLIENT: client_path,
     }
+
+
+def prepare_channels(path: Path | str, out_dir: Path | str) -> dict[SpeakerRole, Path]:
+    """Per-speaker WAVs for any recording: stereo split or mono diarization."""
+    path = Path(path)
+    if is_separated_stereo(path):
+        return split_channels(path, out_dir)
+    return separate_speakers(path, out_dir)

@@ -21,6 +21,8 @@ audio = [
     "torch",
     "soundfile",
     "numpy",
+    "resemblyzer>=0.1.4",
+    "setuptools>=70,<81",
 ]
 asr = [
     "mlx-whisper",
