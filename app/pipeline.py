@@ -52,7 +52,7 @@ def process_call(call_id: int) -> None:
         call.channels = info.channels
 
         out_dir = settings.DATA_DIR / "processed" / str(call_id)
-        channel_paths = prepare_channels(audio_path, out_dir)
+        channel_paths = prepare_channels(working, out_dir)
 
         speech_segments(channel_paths[SpeakerRole.MANAGER])
         speech_segments(channel_paths[SpeakerRole.CLIENT])
