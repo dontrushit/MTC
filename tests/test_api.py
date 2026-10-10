@@ -191,12 +191,16 @@ def test_upload_call_saves_file_and_submits(api: dict) -> None:
     path = Path(body["audio_path"])
     assert path.is_file()
     assert path.name == f"{body['id']}_talk.wav"
-    assert path.read_bytes() == b"RIFFdemo"
+    # The recording is encrypted at rest; the audio endpoint still serves the wave.
+    assert path.read_bytes() != b"RIFFdemo"
     assert api["submitted"] == [body["id"]]
 
     audio = api["client"].get(f"/calls/{body['id']}/audio")
     assert audio.status_code == 200
     assert audio.content == b"RIFFdemo"
+
+    # The stored file stays encrypted at rest (Fernet), playable through the API.
+    assert Path(body["audio_path"]).read_bytes() != b"RIFFdemo"
 
     again = api["client"].post(f"/calls/{body['id']}/reprocess")
     assert again.status_code == 200

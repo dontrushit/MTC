@@ -94,6 +94,7 @@ class Call(Base):
         nullable=False,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consent: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="0")
     report_topic: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     report_summary: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     report_json: Mapped[str] = mapped_column(
@@ -136,6 +137,12 @@ class Agreement(Base):
     amount: Mapped[str | None] = mapped_column(String(64), nullable=True)
     conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
     quote: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
+    priority: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="normal", server_default="normal"
+    )
     status: Mapped[AgreementStatus] = mapped_column(
         Enum(AgreementStatus, native_enum=False, length=16),
         default=AgreementStatus.OPEN,
@@ -199,3 +206,24 @@ class AppSetting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class AuditLog(Base):
+    """Who opened or changed what. Kept in the local database only."""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    manager_id: Mapped[int | None] = mapped_column(
+        ForeignKey("managers.id"), nullable=True
+    )
+    manager_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="", server_default=""
+    )
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detail: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")

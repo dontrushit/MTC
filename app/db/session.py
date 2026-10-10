@@ -39,6 +39,8 @@ def init_db() -> None:
     _ensure_manager_phone()
     _ensure_manager_password()
     _ensure_atc_recording_on()
+    _ensure_call_consent()
+    _ensure_agreement_extra()
 
 
 def _ensure_client_last_name() -> None:
@@ -135,5 +137,42 @@ def _ensure_atc_recording_on() -> None:
                 text(
                     "ALTER TABLE atc_calls ADD COLUMN recording_on BOOLEAN "
                     "NOT NULL DEFAULT 0"
+                )
+            )
+
+
+def _ensure_call_consent() -> None:
+    """Remember that the client agreed to the recording."""
+    if not settings.DB_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(calls)")).fetchall()
+        if not rows:
+            return
+        columns = {row[1] for row in rows}
+        if "consent" not in columns:
+            conn.execute(
+                text("ALTER TABLE calls ADD COLUMN consent BOOLEAN NOT NULL DEFAULT 0")
+            )
+
+
+def _ensure_agreement_extra() -> None:
+    """Category and priority columns for agreements added after the first tables."""
+    if not settings.DB_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(agreements)")).fetchall()
+        if not rows:
+            return
+        columns = {row[1] for row in rows}
+        if "category" not in columns:
+            conn.execute(
+                text("ALTER TABLE agreements ADD COLUMN category VARCHAR(64) NOT NULL DEFAULT ''")
+            )
+        if "priority" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE agreements ADD COLUMN priority VARCHAR(16) "
+                    "NOT NULL DEFAULT 'normal'"
                 )
             )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -28,6 +29,7 @@ from app.db.session import SessionLocal
 from app.extraction.dates import resolve_due
 from app.extraction.llm import extract
 from app.extraction.verify import normalize_quote, verify_agreements
+from app.rules import classify, load_rules
 
 
 def process_call(call_id: int) -> None:
@@ -44,7 +46,8 @@ def process_call(call_id: int) -> None:
         session.commit()
 
         audio_path = Path(call.audio_path)
-        info = probe(audio_path)
+        working = _unlock_for_job(audio_path)
+        info = probe(working)
         call.duration_sec = int(round(info.duration_sec))
         call.channels = info.channels
 
@@ -87,6 +90,22 @@ def process_call(call_id: int) -> None:
             session.commit()
     finally:
         session.close()
+
+
+def _unlock_for_job(audio_path: Path) -> Path:
+    """Recordings stay encrypted at rest; ASR works on a temporary plain copy."""
+    from app import secure
+
+    if not secure.is_encrypted(audio_path):
+        return audio_path
+    working_dir = settings.DATA_DIR / "tmp"
+    plain = secure.unlock_to(audio_path, working_dir / audio_path.name)
+    atexit.register(_forget, plain)
+    return plain
+
+
+def _forget(path: Path) -> None:
+    path.unlink(missing_ok=True)
 
 
 def extract_call(call_id: int) -> None:
@@ -136,6 +155,7 @@ def extract_call(call_id: int) -> None:
                 continue
             due_text = ag.due_text or ""
             due_date = resolve_due(ag.due_text, call.started_at, tz)
+            group, priority = classify(ag.action, load_rules(session))
             session.add(
                 Agreement(
                     call_id=call_id,
@@ -147,6 +167,8 @@ def extract_call(call_id: int) -> None:
                     amount=ag.amount,
                     conditions=ag.conditions,
                     quote=ag.quote,
+                    category=group,
+                    priority=priority,
                 )
             )
 

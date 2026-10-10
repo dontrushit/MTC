@@ -11,6 +11,7 @@ from app.ui.api_client import ApiError, api_get, api_patch, api_post
 from app.ui.labels import call_status_ru, format_dt
 from app.ui.phone_form import client_phone_input
 from app.ui.theme import (
+    agreement_actions,
     configure,
     page_heading,
     show_call_extras,
@@ -50,6 +51,7 @@ def _show_report() -> None:
     show_call_report(call, call["agreements"])
     show_call_extras(call)
     for agreement in call["agreements"]:
+        agreement_actions(agreement)
         _done_button(agreement)
 
 
@@ -82,6 +84,8 @@ def main() -> None:
 
 def _call_form(manager_id: int, clients: list[dict]) -> None:
     client_id = _client_fields(clients)
+    st.caption("Клиент предупреждён, что разговор записывается? Согласие сохраняется в карточке.")
+    consent = st.checkbox("Клиент предупреждён о записи", value=False)
     recorded = st.audio_input("Запись звонка", sample_rate=16000)
     if recorded is not None and recorded.getvalue():
         payload = recorded.getvalue()
@@ -93,6 +97,7 @@ def _call_form(manager_id: int, clients: list[dict]) -> None:
             _submit_audio(
                 manager_id,
                 client_id,
+                consent=consent,
                 filename="recording.wav",
                 payload=payload,
                 content_type="audio/wav",
@@ -100,10 +105,10 @@ def _call_form(manager_id: int, clients: list[dict]) -> None:
                 file_id=file_id,
             )
     with st.expander("Загрузить готовый файл"):
-        _file_source(manager_id, client_id)
+        _file_source(manager_id, client_id, consent)
 
 
-def _file_source(manager_id: int, client_id: int | None) -> None:
+def _file_source(manager_id: int, client_id: int | None, consent: bool) -> None:
     uploaded = st.file_uploader(
         "Файл",
         type=["wav", "mp3", "m4a", "ogg", "flac"],
@@ -118,6 +123,7 @@ def _file_source(manager_id: int, client_id: int | None) -> None:
         _submit_audio(
             manager_id,
             client_id,
+            consent=consent,
             filename=uploaded.name,
             payload=uploaded.getvalue(),
             content_type=uploaded.type or "application/octet-stream",
@@ -135,6 +141,7 @@ def _submit_audio(
     content_type: str,
     started_at: str,
     file_id: str | None,
+    consent: bool = False,
 ) -> None:
     if not payload:
         st.warning("Запись пустая.")
@@ -148,6 +155,7 @@ def _submit_audio(
             "client_id": str(client_id),
             "manager_id": str(manager_id),
             "started_at": started_at,
+            "consent": "true" if consent else "false",
         },
         files={"file": (filename, payload, content_type)},
     )

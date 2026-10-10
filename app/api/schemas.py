@@ -66,6 +66,7 @@ class CallOut(OrmOut):
     channels: int
     status: CallStatus
     error_message: str | None
+    consent: bool = False
     report_topic: str = ""
     report_summary: str = ""
     report_json: str = "{}"
@@ -90,6 +91,8 @@ class AgreementOut(OrmOut):
     amount: str | None
     conditions: str | None
     quote: str
+    category: str = ""
+    priority: str = "normal"
     status: AgreementStatus
     created_at: datetime
     updated_at: datetime
@@ -113,6 +116,8 @@ class AgreementIn(BaseModel):
     amount: str | None = None
     conditions: str | None = None
     quote: str = ""
+    category: str | None = None
+    priority: str | None = None
 
 
 class AgreementPatch(BaseModel):
@@ -124,6 +129,8 @@ class AgreementPatch(BaseModel):
     amount: str | None = None
     conditions: str | None = None
     quote: str | None = None
+    category: str | None = None
+    priority: str | None = None
 
 
 class ReportPatch(BaseModel):
@@ -142,3 +149,44 @@ class ManagerStats(BaseModel):
         description="Percent of done agreements completed on or before the due date. "
         "Null when the manager has no done agreements."
     )
+
+
+class ConsentIn(BaseModel):
+    consent: bool
+
+
+class CrmSettingsOut(BaseModel):
+    webhook_url: str = ""
+    token: str = ""
+
+
+class CrmSettingsIn(BaseModel):
+    webhook_url: str = ""
+    token: str = ""
+
+
+class CrmSendOut(BaseModel):
+    sent: bool
+    message: str
+
+
+class RulesOut(BaseModel):
+    rules: list[dict]
+    categories: list[str]
+    priorities: list[str]
+
+
+class RulesIn(BaseModel):
+    rules: list[dict]
+
+
+class AuditOut(BaseModel):
+    id: int
+    at: str
+    manager_id: int | None
+    manager_name: str
+    action: str
+    action_ru: str
+    entity: str
+    entity_id: int | None
+    detail: str

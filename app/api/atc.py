@@ -129,6 +129,7 @@ def get_atc_settings(
 @router.put("/atc/settings", response_model=AtcSettingsOut)
 def update_atc_settings(
     payload: AtcSettingsIn,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     _: Manager = Depends(require_supervisor),
 ) -> AtcSettingsOut:
@@ -158,6 +159,16 @@ def update_atc_settings(
         manager_id=payload.manager_id,
     )
     db.commit()
+    if payload.recording_url.strip():
+        waiting = list(
+            db.scalars(
+                select(AtcCall).where(
+                    AtcCall.call_id.is_(None), AtcCall.ended_at.is_not(None)
+                )
+            ).all()
+        )
+        for row in waiting:
+            background.add_task(fetch_and_attach, row.external_id)
     return _settings_out(db)
 
 

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import secure
 from app.api import worker
 from app.atc import recording
 from app.atc.options import load_options
@@ -228,6 +229,7 @@ def _write_recording(row: AtcCall, payload: bytes, extension: str) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     dest = folder / f"{_safe_id(row.external_id)}{ext}"
     dest.write_bytes(payload)
+    secure.lock(dest)
     row.recording_path = str(dest)
 
 
@@ -237,7 +239,8 @@ def _copy_into_raw(row: AtcCall, call_id: int) -> Path:
     folder = settings.DATA_DIR / "raw"
     folder.mkdir(parents=True, exist_ok=True)
     dest = folder / f"{call_id}_atc{ext}"
-    dest.write_bytes(source.read_bytes())
+    dest.write_bytes(secure.plain_bytes(source))
+    secure.lock(dest)
     return dest
 
 

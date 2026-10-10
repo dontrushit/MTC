@@ -9,6 +9,7 @@ from app.ui.api_client import ApiError, api_delete, api_get, api_patch, api_post
 from app.ui.labels import format_dt
 from app.ui.phone_form import client_phone_input
 from app.ui.theme import (
+    agreement_actions,
     configure,
     page_heading,
     show_call_extras,
@@ -118,10 +119,17 @@ def _render_call(call: dict) -> None:
         st.caption("Отчёт ещё готовится.")
     else:
         show_call_report(detail, detail["agreements"])
+        if call.get("consent"):
+            st.caption("Клиент предупреждён о записи.")
+        elif st.button("Согласие на запись получено", key=f"consent-{call['id']}"):
+            api_patch(f"/calls/{call['id']}/consent", {"consent": True})
+            st.rerun()
         if st.button("Изменить отчёт", key=f"edit-report-{call['id']}"):
             st.session_state["edit_report"] = call["id"]
             _reset_report_form(detail)
             st.rerun()
+        for agreement in detail.get("agreements") or []:
+            agreement_actions(agreement)
     show_call_extras(detail)
 
 

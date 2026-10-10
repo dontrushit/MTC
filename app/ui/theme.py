@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlparse
 
 import streamlit as st
 
+from app.rules import PRIORITY_RU
 from app.ui.labels import agreement_status_ru, format_clock, responsible_ru
 
 _CSS = Path(__file__).with_name("mts.css")
@@ -120,6 +121,12 @@ def show_agreement(agreement: dict) -> None:
     status = str(agreement.get("status") or "")
     tone = _AGREEMENT_TONE.get(status, "muted")
     bits = [responsible_ru(str(agreement.get("responsible") or ""))]
+    category = str(agreement.get("category") or "")
+    priority = str(agreement.get("priority") or "")
+    if category:
+        bits.append(f"тип {category}")
+    if priority and priority != "normal":
+        bits.append(f"приоритет {PRIORITY_RU.get(priority, priority)}")
     if agreement.get("due_date"):
         bits.append(f"срок {_ru_date(str(agreement['due_date']))}")
     elif agreement.get("due_text"):
@@ -141,6 +148,37 @@ def show_agreement(agreement: dict) -> None:
         f"<p class='mts-meta'>{html.escape(' · '.join(bits))}</p>"
         f"{cond_html}{quote_html}</article>"
     )
+
+
+def agreement_actions(agreement: dict) -> None:
+    """Buttons under one agreement: calendar event and CRM task."""
+    from app.ui.api_client import ApiError, api_get_bytes, api_post
+
+    agreement_id = int(agreement["id"])
+    cols = st.columns(2)
+    try:
+        data, _media = api_get_bytes(f"/agreements/{agreement_id}/calendar.ics")
+    except ApiError as exc:
+        cols[0].caption(f"Календарь недоступен: {exc.message}")
+    else:
+        cols[0].download_button(
+            "В календарь (.ics)",
+            data=data,
+            file_name=f"agreement_{agreement_id}.ics",
+            mime="text/calendar",
+            key=f"ics-{agreement_id}",
+        )
+    label = "Повторно в CRM" if agreement.get("status") == "done" else "Отправить в CRM"
+    if cols[1].button(label, key=f"crm-{agreement_id}"):
+        try:
+            result = api_post(f"/agreements/{agreement_id}/send-to-crm")
+        except ApiError as exc:
+            st.warning(exc.message)
+        else:
+            if result and result.get("sent"):
+                st.success(result.get("message") or "Отправлено в CRM.")
+            else:
+                st.warning(result.get("message") or "CRM не ответила.")
 
 
 def show_call_report(call: dict, agreements: list[dict]) -> None:
@@ -251,6 +289,8 @@ def _agreement_block(agreements: list[dict]) -> str:
     items = []
     for index, agreement in enumerate(agreements, start=1):
         bits = [responsible_ru(str(agreement.get("responsible") or ""))]
+        if agreement.get("category"):
+            bits.append(str(agreement["category"]))
         if agreement.get("due_date"):
             bits.append(_ru_date(str(agreement["due_date"])))
         elif agreement.get("due_text"):

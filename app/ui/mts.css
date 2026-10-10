@@ -1330,3 +1330,81 @@ audio {
     gap: 4px;
   }
 }
+
+/* Phone: Streamlit canvas, paddings, and the manager's touch flow. */
+@media (max-width: 640px) {
+  .stApp,
+  [data-testid="stAppViewContainer"],
+  [data-testid="blockContainer"],
+  .st-emotion-cache-1y4p812 {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    max-width: 100% !important;
+  }
+
+  [data-testid="blockContainer"] {
+    padding-top: 20px !important;
+  }
+
+  .mts-page-head h1 {
+    font-size: 24px !important;
+  }
+
+  .mts-page-head p {
+    font-size: 14px;
+  }
+
+  .mts-bar {
+    padding: 12px 12px;
+  }
+
+  .mts-menu {
+    gap: 10px 12px;
+    font-size: 14px;
+  }
+
+  .mts-btn,
+  .stButton > button,
+  [data-testid="stFormSubmitButton"] > button {
+    width: 100%;
+  }
+
+  .stColumns {
+    gap: 8px !important;
+  }
+
+  .mts-hero h1 {
+    font-size: 26px !important;
+  }
+
+  .mts-coin {
+    transform: scale(0.86);
+  }
+
+  .mts-live {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .mts-dialog {
+    font-size: 14px;
+  }
+
+  .mts-agree-top h3 {
+    font-size: 16px;
+  }
+
+  .mts-report {
+    padding: 12px;
+  }
+
+  .stDataFrame {
+    font-size: 12px;
+  }
+
+  div[data-baseweb="input"],
+  div[data-baseweb="select"],
+  div[data-baseweb="textarea"] {
+    font-size: 15px;
+  }
+}
