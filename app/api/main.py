@@ -37,6 +37,7 @@ from app.api.schemas import (
     AuditOut,
     CallDetail,
     CallOut,
+    CategoryStat,
     ClientDetail,
     ClientIn,
     ClientOut,
@@ -51,6 +52,7 @@ from app.api.schemas import (
     ReportPatch,
     RulesIn,
     RulesOut,
+    StatsOverview,
     UtteranceOut,
 )
 from app.atc.access import sees_atc
@@ -1025,3 +1027,49 @@ def manager_stats(db: Session = Depends(get_db)) -> list[ManagerStats]:
             )
         )
     return stats
+
+
+@app.get("/stats/agreements", response_model=StatsOverview)
+def agreement_stats_overview(
+    db: Session = Depends(get_db),
+    _: Manager = Depends(require_supervisor),
+) -> StatsOverview:
+    """Supervisor dashboard: statuses, timeliness, and a breakdown by category."""
+    mark_overdue(db, _today())
+    tz = ZoneInfo(settings.TZ)
+    agreements = list(db.scalars(select(Agreement)).all())
+    done = [item for item in agreements if item.status == AgreementStatus.DONE]
+    if done:
+        on_time = sum(1 for item in done if _on_time(item, tz))
+        done_on_time: float | None = round(on_time / len(done) * 100, 1)
+    else:
+        done_on_time = None
+    groups: dict[str, list[Agreement]] = {}
+    for item in agreements:
+        groups.setdefault(item.category or "", []).append(item)
+    categories = [
+        CategoryStat(
+            category=name or "(без типа)",
+            total=len(rows),
+            open=sum(1 for row in rows if row.status == AgreementStatus.OPEN),
+            overdue=sum(1 for row in rows if row.status == AgreementStatus.OVERDUE),
+            done=sum(1 for row in rows if row.status == AgreementStatus.DONE),
+        )
+        for name, rows in sorted(groups.items(), key=_category_order)
+    ]
+    return StatsOverview(
+        total=len(agreements),
+        open=sum(1 for item in agreements if item.status == AgreementStatus.OPEN),
+        overdue=sum(1 for item in agreements if item.status == AgreementStatus.OVERDUE),
+        done=len(done),
+        cancelled=sum(
+            1 for item in agreements if item.status == AgreementStatus.CANCELLED
+        ),
+        done_on_time=done_on_time,
+        categories=categories,
+    )
+
+
+def _category_order(pair: tuple[str, list[Agreement]]) -> tuple[int, str]:
+    name = pair[0]
+    return (2 if name in ("", "(без типа)") else 0, name)

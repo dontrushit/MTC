@@ -151,6 +151,24 @@ class ManagerStats(BaseModel):
     )
 
 
+class CategoryStat(BaseModel):
+    category: str = ""
+    total: int
+    open: int
+    overdue: int
+    done: int
+
+
+class StatsOverview(BaseModel):
+    total: int
+    open: int
+    overdue: int
+    done: int
+    cancelled: int
+    done_on_time: float | None
+    categories: list[CategoryStat]
+
+
 class ConsentIn(BaseModel):
     consent: bool
 

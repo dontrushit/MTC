@@ -15,10 +15,12 @@ from app.ui.labels import agreement_status_ru, format_clock, responsible_ru
 _CSS = Path(__file__).with_name("mts.css")
 
 _NAV = (
-    ("", "Звонок"),
-    ("История", "История"),
-    ("Клиенты", "Клиенты"),
-    ("Настройка", "Настройка АТС"),
+    ("", "Звонок", False),
+    ("История", "История", False),
+    ("Клиенты", "Клиенты", False),
+    ("Руководитель", "Руководитель", True),
+    ("Настройка", "Настройка АТС", True),
+    ("Журнал", "Журнал", True),
 )
 
 _QUICK = (
@@ -414,8 +416,8 @@ def _current_slug() -> str:
 def _header(*, supervisor: bool = False) -> str:
     current = _current_slug()
     links = []
-    for slug, label in _NAV:
-        if slug == "Настройка" and not supervisor:
+    for slug, label, bosses_only in _NAV:
+        if bosses_only and not supervisor:
             continue
         href = "/" if slug == "" else f"/{slug}"
         active = " class='is-active'" if current == slug else ""

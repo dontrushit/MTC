@@ -307,3 +307,31 @@ def test_worker_marks_call_error_when_pipeline_breaks(
         call = session.get(Call, call_id)
         assert call.status == CallStatus.ERROR
         assert call.error_message and "app.pipeline" in call.error_message
+
+
+def test_unknown_route_hidden_from_non_supervisors(api: dict, monkeypatch) -> None:
+    """Only the supervisor sees stats; a normal manager gets 403."""
+    from app.auth import hash_password
+    from app.db.models import Manager
+
+    with api["Session"]() as session:
+        session.add(Manager(name="Рядовой", password_hash=hash_password("staff-pass")))
+        session.commit()
+    client = api["client"]
+    client.headers.pop("Authorization")
+    login = client.post(
+        "/auth/login", json={"name": "Рядовой", "password": "staff-pass"}
+    ).json()["token"]
+    client.headers["Authorization"] = f"Bearer {login}"
+    assert client.get("/stats/agreements").status_code == 403
+    assert client.get("/audit").status_code == 403
+
+    boss = client.post(
+        "/auth/login", json={"name": "Служебный", "password": "test-pass"}
+    ).json()["token"]
+    client.headers["Authorization"] = f"Bearer {boss}"
+    _call_with_agreement(api)
+    overview = client.get("/stats/agreements").json()
+    assert overview["total"] >= 1
+    assert any(item["category"] == "КП" for item in overview["categories"])
+    assert client.get("/audit").status_code == 200
