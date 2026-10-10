@@ -55,6 +55,7 @@ app/
   ui/                # Streamlit: Home.py, pages/, только HTTP
   bot/               # Telegram (будущее)
 scripts/
+  setup.sh           # окружение одной командой: .venv + зависимости + check_env
   check_env.py       # отчёт OK/FAIL по окружению
   make_test_call.py  # data/raw/test_call.wav (macOS say / Linux espeak-ng + ffmpeg)
   record_call.sh     # запись с микрофона (avfoundation / pulse|alsa)
@@ -86,21 +87,36 @@ models/              # локальные веса whisper (в .gitignore)
 - Сессия: контекстный менеджер `get_session()`.
 - Линтер: `ruff check .` (line-length 100).
 - Тесты: `pytest -q` (без `@slow`); `pytest -m slow -q` — полный ASR; модели БД — in-memory SQLite.
+- Обёртки: `make setup|lint|test|test-slow|check|run`.
 - Тяжёлые optional-deps ставить только когда нужен соответствующий этап.
 
 ## Быстрый старт
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-uv pip install -p .venv -e ".[core,dev,audio,asr,llm,api,ui]"
-# macOS: положить mlx-веса в models/whisper-large-v3-turbo
-#   WHISPER_MODEL=models/whisper-large-v3-turbo
-# Linux: faster-whisper сам скачает CTranslate2 large-v3-turbo
-#   WHISPER_MODEL=large-v3-turbo
-#   (дефолт mlx-community/... тоже сработает — смапится в large-v3-turbo)
-# ffmpeg: brew install ffmpeg  |  sudo pacman -S ffmpeg  |  sudo apt install ffmpeg
+# Всё окружение одной командой (macOS/Linux; uv, если установлен, иначе pip):
+scripts/setup.sh
 
+# Или вручную:
+python3.12 -m venv .venv          # только 3.11/3.12; системный Python 3.13+ не подходит
+source .venv/bin/activate
+python -m pip install -e ".[core,dev,audio,asr,llm,api,ui]"
+# с uv (отдельно: pipx install uv): uv pip install -p .venv -e ".[core,dev,audio,asr,llm,api,ui]"
+python scripts/check_env.py
+```
+
+**Важно:**
+
+- Зависимости ставятся **только** в активированный `.venv`. `pacman/apt/dnf` и `pipx` ставят
+  пакеты для системного Python — внутри `.venv` они невидимы (`ModuleNotFoundError`).
+- Arch/CachyOS: системный Python 3.13+ не подходит (`requires-python <3.13`) —
+  `sudo pacman -S python312`, затем `python3.12 -m venv .venv`.
+- macOS: положить mlx-веса в `models/whisper-large-v3-turbo`
+  (`WHISPER_MODEL=models/whisper-large-v3-turbo`).
+- Linux: faster-whisper сам скачает CTranslate2 `large-v3-turbo`
+  (`WHISPER_MODEL=large-v3-turbo`; дефолт `mlx-community/...` тоже сработает — смапится).
+- ffmpeg: `brew install ffmpeg` | `sudo pacman -S ffmpeg` | `sudo apt install ffmpeg`
+
+```bash
 ruff check .
 pytest -q
 

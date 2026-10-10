@@ -99,7 +99,7 @@ def _transcribe_mlx(audio: Any) -> dict:
     except ImportError as exc:
         raise RuntimeError(
             "mlx-whisper is required for the mlx backend (macOS). "
-            "Install with: uv pip install -e '.[asr]'"
+            "Install with: pip install -e '.[asr]'"
         ) from exc
     return mlx_whisper.transcribe(
         audio,
@@ -115,7 +115,7 @@ def _faster_whisper_model():
         from faster_whisper import WhisperModel
     except ImportError as exc:
         raise RuntimeError(
-            "faster-whisper is required on Linux. Install with: uv pip install -e '.[asr]'"
+            "faster-whisper is required on Linux. Install with: pip install -e '.[asr]'"
         ) from exc
 
     model_name = resolve_whisper_model("faster-whisper")
