@@ -24,12 +24,24 @@ def _pool() -> ThreadPoolExecutor:
 
 
 def _run(call_id: int) -> None:
-    from app.pipeline import process_call
-
     try:
+        from app.pipeline import process_call
+
         process_call(call_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("process_call failed for call %s", call_id)
+        _mark_error(call_id, str(exc))
+
+
+def _mark_error(call_id: int, message: str) -> None:
+    try:
+        with get_session() as session:
+            call = session.get(Call, call_id)
+            if call is not None and call.status != CallStatus.ERROR:
+                call.status = CallStatus.ERROR
+                call.error_message = message
+    except Exception:
+        logger.exception("cannot mark call %s as error", call_id)
 
 
 def submit_call(call_id: int) -> None:

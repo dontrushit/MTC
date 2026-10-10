@@ -692,7 +692,7 @@ def agreement_to_crm(
             detail="Сначала введите ссылку CRM на экране «Настройка АТС»",
         )
     client = db.get(Client, agreement.client_id)
-    data = AgreementOut.model_validate(agreement).model_dump()
+    data = AgreementOut.model_validate(agreement).model_dump(mode="json")
     sent, message = send_to_crm(
         url.strip(),
         payload_for(
@@ -885,6 +885,7 @@ def create_agreement(
         priority=priority,
     )
     db.add(agreement)
+    db.flush()
     audit_log(
         db,
         manager=manager,

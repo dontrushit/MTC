@@ -274,3 +274,36 @@ def test_opening_a_call_is_journaled(api: dict) -> None:
     actions = [row["action"] for row in audit]
     assert "open_call" in actions
     assert "edit_agreement" in actions
+
+
+def test_worker_marks_call_error_when_pipeline_breaks(
+    api: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken pipeline (e.g. no ASR module) must leave an honest error status."""
+    import sys
+
+    from app.api import worker
+    from app.db.models import Call, CallStatus
+
+    customer = _customer(api)
+    with api["Session"]() as session:
+        call = Call(
+            client_id=customer,
+            manager_id=1,
+            audio_path="pending",
+            started_at=datetime(2026, 10, 9, 11, 0, tzinfo=TZ),
+            duration_sec=0,
+            channels=0,
+            status=CallStatus.NEW,
+        )
+        session.add(call)
+        session.commit()
+        call_id = call.id
+
+    monkeypatch.setitem(sys.modules, "app.pipeline", None)
+    worker._run(call_id)
+
+    with api["Session"]() as session:
+        call = session.get(Call, call_id)
+        assert call.status == CallStatus.ERROR
+        assert call.error_message and "app.pipeline" in call.error_message
