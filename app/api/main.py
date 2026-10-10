@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
@@ -17,8 +18,10 @@ from app.agreements_service import mark_overdue
 from app.api import worker
 from app.api.deps import get_db
 from app.api.schemas import (
+    AgreementIn,
     AgreementOut,
     AgreementPatch,
+    ReportPatch,
     CallDetail,
     CallOut,
     ClientDetail,
@@ -383,6 +386,65 @@ def list_agreements(
     return sorted(rows, key=_agreement_sort_key)
 
 
+@app.patch("/calls/{call_id}/report", response_model=CallOut)
+def update_call_report(
+    call_id: int,
+    payload: ReportPatch,
+    db: Session = Depends(get_db),
+) -> Call:
+    call = db.get(Call, call_id)
+    if call is None:
+        raise HTTPException(status_code=404, detail="Звонок не найден")
+    topic = payload.topic.strip()
+    brief = payload.brief.strip()
+    unresolved = payload.unresolved.strip()
+    call.report_topic = topic
+    call.report_summary = brief
+    call.report_json = json.dumps(
+        {"topic": topic, "brief": brief, "unresolved": unresolved},
+        ensure_ascii=False,
+    )
+    db.commit()
+    db.refresh(call)
+    return call
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
+@app.post("/calls/{call_id}/agreements", response_model=AgreementOut)
+def create_agreement(
+    call_id: int,
+    payload: AgreementIn,
+    db: Session = Depends(get_db),
+) -> Agreement:
+    call = db.get(Call, call_id)
+    if call is None:
+        raise HTTPException(status_code=404, detail="Звонок не найден")
+    due_text = payload.due_text.strip()
+    if payload.due_date is not None and not due_text:
+        due_text = payload.due_date.isoformat()
+    agreement = Agreement(
+        call_id=call.id,
+        client_id=call.client_id,
+        action=payload.action.strip(),
+        responsible=payload.responsible,
+        due_date=payload.due_date,
+        due_text=due_text,
+        amount=_blank_to_none(payload.amount),
+        conditions=_blank_to_none(payload.conditions),
+        quote=payload.quote.strip(),
+    )
+    db.add(agreement)
+    db.commit()
+    db.refresh(agreement)
+    return agreement
+
+
 @app.patch("/agreements/{agreement_id}", response_model=AgreementOut)
 def patch_agreement(
     agreement_id: int,
@@ -393,14 +455,36 @@ def patch_agreement(
     if agreement is None:
         raise HTTPException(status_code=404, detail="Договорённость не найдена")
     data = payload.model_dump(exclude_unset=True)
-    if "action" in data and not str(data["action"]).strip():
-        raise HTTPException(status_code=400, detail="Действие не может быть пустым")
+    if "action" in data:
+        data["action"] = str(data["action"]).strip()
+        if not data["action"]:
+            raise HTTPException(status_code=400, detail="Действие не может быть пустым")
+    if "amount" in data:
+        data["amount"] = _blank_to_none(data["amount"])
+    if "conditions" in data:
+        data["conditions"] = _blank_to_none(data["conditions"])
+    if "quote" in data and data["quote"] is not None:
+        data["quote"] = data["quote"].strip()
+    if "due_text" in data and data["due_text"] is not None:
+        data["due_text"] = data["due_text"].strip()
+    if data.get("due_date") is not None and not data.get("due_text"):
+        data["due_text"] = data["due_date"].isoformat()
     for key, value in data.items():
         setattr(agreement, key, value)
     agreement.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(agreement)
     return agreement
+
+
+@app.delete("/agreements/{agreement_id}", status_code=204)
+def delete_agreement(agreement_id: int, db: Session = Depends(get_db)) -> Response:
+    agreement = db.get(Agreement, agreement_id)
+    if agreement is None:
+        raise HTTPException(status_code=404, detail="Договорённость не найдена")
+    db.delete(agreement)
+    db.commit()
+    return Response(status_code=204)
 
 
 @app.get("/stats/managers", response_model=list[ManagerStats])

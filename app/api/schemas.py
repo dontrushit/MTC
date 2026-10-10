@@ -89,11 +89,31 @@ class ClientDetail(ClientOut):
     agreements: list[AgreementOut]
 
 
+class AgreementIn(BaseModel):
+    action: str = Field(min_length=1)
+    responsible: AgreementResponsible
+    due_date: date | None = None
+    due_text: str = ""
+    amount: str | None = None
+    conditions: str | None = None
+    quote: str = ""
+
+
 class AgreementPatch(BaseModel):
     status: AgreementStatus | None = None
     due_date: date | None = None
+    due_text: str | None = None
     action: str | None = None
+    responsible: AgreementResponsible | None = None
+    amount: str | None = None
     conditions: str | None = None
+    quote: str | None = None
+
+
+class ReportPatch(BaseModel):
+    topic: str = ""
+    brief: str = ""
+    unresolved: str = ""
 
 
 class ManagerStats(BaseModel):
