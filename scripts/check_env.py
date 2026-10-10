@@ -15,22 +15,48 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.config import settings  # noqa: E402
+INSTALL_HINT = (
+    "dependencies are not installed. Activate .venv and run: "
+    "python -m pip install -e '.[core,dev,audio,asr,llm,api,ui]' "
+    "(or run scripts/setup.sh)"
+)
+
+_IMPORT_ERROR: str | None = None
+try:
+    from app.asr.backend import (  # noqa: E402
+        resolve_whisper_backend,
+        resolve_whisper_compute_type,
+        resolve_whisper_device,
+        resolve_whisper_model,
+    )
+    from app.config import settings  # noqa: E402
+except ImportError as exc:
+    _IMPORT_ERROR = f"{exc}"
+
+from app.system import ffmpeg_install_hint, python_version_ok  # noqa: E402
+
+
+def check_venv() -> tuple[bool, str]:
+    if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+        return True, f"virtualenv at {sys.prefix}"
+    return False, "not inside a virtualenv. Run: source .venv/bin/activate"
 
 
 def check_python() -> tuple[bool, str]:
-    ok = version_info >= (3, 11)
     ver = f"{version_info.major}.{version_info.minor}.{version_info.micro}"
-    if ok:
+    if python_version_ok(version_info.major, version_info.minor):
         return True, f"Python {ver}"
-    return False, f"Python {ver} (need >= 3.11). Install Python 3.11+ and recreate .venv."
+    return (
+        False,
+        f"Python {ver} (need 3.11 or 3.12, not 3.13+). Recreate .venv with 3.11/3.12.",
+    )
 
 
 def check_ffmpeg() -> tuple[bool, str]:
     path = shutil.which("ffmpeg")
     if path:
         return True, f"ffmpeg found at {path}"
-    return False, "ffmpeg not in PATH. Install: brew install ffmpeg"
+    return False, f"ffmpeg not in PATH. Install: {ffmpeg_install_hint()}"
 
 
 def _ollama_has_model(required: str, available: list[str]) -> bool:
@@ -48,6 +74,8 @@ def _ollama_has_model(required: str, available: list[str]) -> bool:
 
 
 def check_ollama() -> tuple[bool, str]:
+    if _IMPORT_ERROR is not None:
+        return False, f"skipped: {INSTALL_HINT}"
     url = settings.OLLAMA_URL.rstrip("/")
     try:
         req = urllib.request.Request(f"{url}/api/tags", method="GET")
@@ -74,10 +102,37 @@ def check_ollama() -> tuple[bool, str]:
     )
 
 
+def check_asr() -> tuple[bool, str]:
+    if _IMPORT_ERROR is not None:
+        return False, f"skipped: {INSTALL_HINT}"
+    try:
+        backend = resolve_whisper_backend()
+        model = resolve_whisper_model(backend)
+        device = resolve_whisper_device()
+        compute = resolve_whisper_compute_type(device)
+    except ValueError as exc:
+        return False, str(exc)
+
+    if backend == "mlx":
+        try:
+            import mlx_whisper  # noqa: F401
+        except ImportError:
+            return False, "mlx-whisper not installed. On macOS: pip install -e '.[asr]'"
+        return True, f"mlx-whisper; model {model}"
+
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        return False, "faster-whisper not installed. On Linux: pip install -e '.[asr]'"
+    return True, f"faster-whisper; model {model}; device {device}; compute {compute}"
+
+
 def main() -> int:
     checks = [
+        ("Virtualenv", check_venv),
         ("Python", check_python),
         ("ffmpeg", check_ffmpeg),
+        ("ASR", check_asr),
         ("Ollama", check_ollama),
     ]
     print("MTC environment check\n")

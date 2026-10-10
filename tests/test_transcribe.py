@@ -8,8 +8,13 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from app.asr import transcribe as transcribe_mod
 from app.asr.transcribe import transcribe_channel
 from app.db.models import SpeakerRole
+
+
+def test_transcribe_module_does_not_import_mlx() -> None:
+    assert not hasattr(transcribe_mod, "mlx_whisper")
 
 
 def test_two_vad_chunks_produce_two_timed_segments(
@@ -41,7 +46,7 @@ def test_two_vad_chunks_produce_two_timed_segments(
             ]
         }
 
-    monkeypatch.setattr("app.asr.transcribe.mlx_whisper.transcribe", fake_transcribe)
+    monkeypatch.setattr("app.asr.transcribe.transcribe_audio", fake_transcribe)
 
     segments = transcribe_channel(wav_path, SpeakerRole.MANAGER)
     assert len(segments) == 2

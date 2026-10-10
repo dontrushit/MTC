@@ -3,12 +3,19 @@
 
 from __future__ import annotations
 
+import platform
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.system import tts_install_hint  # noqa: E402
+
 RAW_DIR = ROOT / "data" / "raw"
 OUT_WAV = RAW_DIR / "test_call.wav"
 OUT_TXT = RAW_DIR / "test_call.txt"
@@ -47,7 +54,7 @@ SCENARIO_LINES = [
 ]
 
 
-def _pick_russian_voice() -> str:
+def _pick_macos_russian_voice() -> str:
     result = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, check=True)
     voices = result.stdout
     for name in ("Milena", "Yuri"):
@@ -64,6 +71,22 @@ def _pick_russian_voice() -> str:
     raise SystemExit(1)
 
 
+def _linux_tts_bin() -> str:
+    for name in ("espeak-ng", "espeak"):
+        path = shutil.which(name)
+        if path:
+            return path
+    print(f"No Russian TTS found. Install: {tts_install_hint()}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def _tts_engine() -> tuple[str, str]:
+    """Return (engine, voice_label). engine is `say` or an espeak binary path."""
+    if platform.system() == "Darwin":
+        return "say", _pick_macos_russian_voice()
+    return _linux_tts_bin(), "ru"
+
+
 def _run_ffmpeg(args: list[str]) -> None:
     subprocess.run(["ffmpeg", "-y", *args], capture_output=True, check=True)
 
@@ -78,6 +101,29 @@ def _say_to_wav(voice: str, text: str, out_wav: Path) -> None:
         )
     finally:
         aiff.unlink(missing_ok=True)
+
+
+def _espeak_to_wav(binary: str, text: str, out_wav: Path) -> None:
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        raw = Path(tmp.name)
+    try:
+        subprocess.run(
+            [binary, "-v", "ru", "-s", "130", "-w", str(raw), text],
+            check=True,
+            capture_output=True,
+        )
+        _run_ffmpeg(
+            ["-i", str(raw), "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", str(out_wav)]
+        )
+    finally:
+        raw.unlink(missing_ok=True)
+
+
+def _synth_to_wav(engine: str, voice: str, text: str, out_wav: Path) -> None:
+    if engine == "say":
+        _say_to_wav(voice, text, out_wav)
+        return
+    _espeak_to_wav(engine, text, out_wav)
 
 
 def _silence_wav(duration_sec: float, out_wav: Path) -> None:
@@ -143,7 +189,7 @@ def _build_mono_timeline(turns: list[tuple[str, Path, float]], role: str, out_wa
 
 
 def main() -> int:
-    voice = _pick_russian_voice()
+    engine, voice = _tts_engine()
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -151,7 +197,7 @@ def main() -> int:
         turns: list[tuple[str, Path, float]] = []
         for i, (role, text) in enumerate(DIALOG):
             wav = tmp_path / f"turn_{i:02d}.wav"
-            _say_to_wav(voice, text, wav)
+            _synth_to_wav(engine, voice, text, wav)
             turns.append((role, wav, _probe_duration(wav)))
 
         manager_mono = tmp_path / "manager_timeline.wav"
@@ -177,7 +223,7 @@ def main() -> int:
 
     OUT_TXT.write_text("\n".join(SCENARIO_LINES) + "\n", encoding="utf-8")
     duration = _probe_duration(OUT_WAV)
-    print(f"Wrote {OUT_WAV} ({duration:.1f}s, voice={voice})")
+    print(f"Wrote {OUT_WAV} ({duration:.1f}s, engine={engine}, voice={voice})")
     print(f"Scenario: {OUT_TXT}")
     if duration < 30 or duration > 60:
         print(f"Warning: duration {duration:.1f}s outside 30–60s target.", file=sys.stderr)

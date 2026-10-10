@@ -2,13 +2,13 @@
 
 ## Цель
 
-Локальная система для B2B/B2C (продажи, поддержка, банки, телеком, недвижимость, логистика, клиники): из записи телефонного разговора извлекать **договорённости** — конкретные обязательства (действие, ответственный, срок, сумма/условия, цитата из разговора), вести карточку клиента, напоминания и контроль выполнения. Всё на Mac, без облачных API, только open source.
+Локальная система для B2B/B2C (продажи, поддержка, банки, телеком, недвижимость, логистика, клиники): из записи телефонного разговора извлекать **договорённости** — конкретные обязательства (действие, ответственный, срок, сумма/условия, цитата из разговора), вести карточку клиента, напоминания и контроль выполнения. Работает на **macOS и Linux**, без облачных API, только open source.
 
 ## Конвейер
 
 1. Запись звонка (стерео: канал 0 — менеджер, канал 1 — клиент; моно — резерв через diarization).
 2. Обработка аудио (ffmpeg, Silero VAD). ✅
-3. Расшифровка (mlx-whisper, `large-v3-turbo`). ✅
+3. Расшифровка (`large-v3-turbo`: mlx-whisper на macOS, faster-whisper на Linux). ✅
 4. Извлечение договорённостей (Ollama + qwen2.5, строгий JSON). ✅ код готов, ждёт модель в Ollama
 5. Обычный звонок (один канал) — голоса разделяются локально, первый говорящий считается менеджером. ✅
 6. API (FastAPI): карточка клиента, звонки, договорённости, статистика. ✅
@@ -21,22 +21,23 @@
 
 | Слой | Технологии |
 |------|------------|
-| Python | 3.11 (не 3.13+: нет колёс torch/mlx/pyannote) |
+| Python | 3.11–3.12 (не 3.13+: нет колёс torch/mlx/pyannote) |
 | БД | SQLite, SQLAlchemy 2.x |
-| ASR | mlx-whisper |
+| ASR | mlx-whisper (macOS) / faster-whisper (Linux) |
 | Diarization | pyannote.audio 3.1 (опционально) |
 | LLM | Ollama (qwen2.5:14b / 7b) |
 | API | FastAPI |
 | UI | Streamlit |
 | Bot | python-telegram-bot |
 
-Зависимости в `pyproject.toml` по группам: `core`, `audio`, `asr`, `diarization`, `llm`, `api`, `ui`, `bot`, `dev`.
+Зависимости в `pyproject.toml` по группам: `core`, `audio`, `asr` (по `sys_platform`: mlx на Darwin, faster-whisper на Linux), `asr-macos`, `asr-linux`, `diarization`, `llm`, `api`, `ui`, `bot`, `dev`.
 
 ## Структура
 
 ```
 app/
   config.py          # pydantic-settings, .env
+  system.py          # подсказки установки ffmpeg/TTS по ОС
   pipeline.py        # process_call: probe → split → VAD → ASR → БД
   secure.py          # Fernet: записи шифруются на диске (data/recording.key)
   audit.py           # журнал доступов: кто открыл звонок/запись/отправил в CRM
@@ -47,7 +48,8 @@ app/
     vad.py           # Silero VAD, speech_segments
     exceptions.py    # MonoNotSupportedError
   asr/
-    transcribe.py    # mlx-whisper + фильтр галлюцинаций
+    backend.py       # mlx (macOS) или faster-whisper (Linux)
+    transcribe.py    # ASR + фильтр галлюцинаций
     merge.py         # merge_dialog по времени
   agreements_service.py  # mark_overdue (API и будущий бот)
   extraction/        # schema, prompt, llm, dates, verify
@@ -59,8 +61,10 @@ app/
   ui/                # Streamlit: Home.py, pages/, только HTTP
   bot/               # Telegram (будущее)
 scripts/
+  setup.sh           # окружение одной командой: .venv + зависимости + check_env
   check_env.py       # отчёт OK/FAIL по окружению
-  make_test_call.py  # data/raw/test_call.wav (macOS say + ffmpeg)
+  make_test_call.py  # data/raw/test_call.wav (macOS say / Linux espeak-ng + ffmpeg)
+  record_call.sh     # запись с микрофона (avfoundation / pulse|alsa)
   transcribe_file.py # CLI без БД
   extract_file.py    # транскрипция + извлечение без БД
   accuracy_check.py  # замер точности на 15 тестовых фразах (цель ≥ 90%)
@@ -88,26 +92,45 @@ models/              # локальные веса whisper (в .gitignore)
 ## Соглашения
 
 - Настройки: `app.config.settings`, файл `.env` (образец `.env.example`).
-- Whisper: `WHISPER_MODEL` — путь к локальной mlx-модели (например `models/whisper-large-v3-turbo`) или HF repo id.
+- Whisper: `WHISPER_BACKEND=auto` — mlx на macOS, faster-whisper на Linux. `WHISPER_MODEL` — путь или id модели. На macOS: локальные mlx-веса (`models/whisper-large-v3-turbo`) или `mlx-community/whisper-large-v3-turbo`. На Linux: CTranslate2 id (`large-v3-turbo`); mlx-community id из дефолта автоматически мапится. `WHISPER_DEVICE` / `WHISPER_COMPUTE_TYPE`: `auto` (CUDA float16 или CPU int8).
 - БД по умолчанию: `sqlite:///data/mtc.db`; инициализация: `init_db()` из `app.db.session`.
 - Сессия: контекстный менеджер `get_session()`.
 - Линтер: `ruff check .` (line-length 100).
 - Тесты: `pytest -q` (без `@slow`); `pytest -m slow -q` — полный ASR; модели БД — in-memory SQLite.
+- Обёртки: `make setup|lint|test|test-slow|check|run`.
 - Тяжёлые optional-deps ставить только когда нужен соответствующий этап.
 
 ## Быстрый старт
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-uv pip install -p .venv -e ".[core,dev,audio,asr,llm,api,ui]"
-# Положить mlx-whisper large-v3-turbo в models/whisper-large-v3-turbo, в .env:
-# WHISPER_MODEL=models/whisper-large-v3-turbo
+# Всё окружение одной командой (macOS/Linux; uv, если установлен, иначе pip):
+scripts/setup.sh
 
+# Или вручную:
+python3.12 -m venv .venv          # только 3.11/3.12; системный Python 3.13+ не подходит
+source .venv/bin/activate
+python -m pip install -e ".[core,dev,audio,asr,llm,api,ui]"
+# с uv (отдельно: pipx install uv): uv pip install -p .venv -e ".[core,dev,audio,asr,llm,api,ui]"
+python scripts/check_env.py
+```
+
+**Важно:**
+
+- Зависимости ставятся **только** в активированный `.venv`. `pacman/apt/dnf` и `pipx` ставят
+  пакеты для системного Python — внутри `.venv` они невидимы (`ModuleNotFoundError`).
+- Arch/CachyOS: системный Python 3.13+ не подходит (`requires-python <3.13`) —
+  `sudo pacman -S python312`, затем `python3.12 -m venv .venv`.
+- macOS: положить mlx-веса в `models/whisper-large-v3-turbo`
+  (`WHISPER_MODEL=models/whisper-large-v3-turbo`).
+- Linux: faster-whisper сам скачает CTranslate2 `large-v3-turbo`
+  (`WHISPER_MODEL=large-v3-turbo`; дефолт `mlx-community/...` тоже сработает — смапится).
+- ffmpeg: `brew install ffmpeg` | `sudo pacman -S ffmpeg` | `sudo apt install ffmpeg`
+
+```bash
 ruff check .
 pytest -q
 
-# Тестовый стерео-звонок (macOS, русский голос Milena/Yuri):
+# Тестовый стерео-звонок (macOS: say Milena/Yuri; Linux: espeak-ng):
 python scripts/make_test_call.py
 
 # Расшифровка файла без БД:
