@@ -20,7 +20,22 @@ def main() -> None:
     base = settings.API_URL.rstrip("/")
     try:
         with httpx.Client(base_url=base, timeout=60) as client:
-            manager = client.post("/managers", json={"name": "Анна"})
+            status = client.get("/auth/status")
+            status.raise_for_status()
+            info = status.json()
+            if info["needs_setup"]:
+                if info["managers"]:
+                    body = {"manager_id": info["managers"][0]["id"], "password": "demo"}
+                else:
+                    body = {"name": "Анна", "password": "demo"}
+                signed = client.post("/auth/setup", json=body)
+            else:
+                signed = client.post(
+                    "/auth/login", json={"name": "Анна", "password": "demo"}
+                )
+            signed.raise_for_status()
+            client.headers["Authorization"] = f"Bearer {signed.json()['token']}"
+            manager = client.post("/managers", json={"name": "Анна", "password": "demo"})
             manager.raise_for_status()
             manager_id = manager.json()["id"]
 
@@ -29,7 +44,7 @@ def main() -> None:
                 json={
                     "name": "Иван",
                     "last_name": "Петров",
-                    "phone": "+74951234567",
+                    "phone": "+375291234567",
                 },
             )
             customer.raise_for_status()

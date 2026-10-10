@@ -15,7 +15,9 @@ _CSS = Path(__file__).with_name("mts.css")
 
 _NAV = (
     ("", "Звонок"),
+    ("История", "История"),
     ("Клиенты", "Клиенты"),
+    ("Настройка", "Настройка АТС"),
 )
 
 _QUICK = (
@@ -62,7 +64,10 @@ _ART = (
 )
 
 
-def configure(title: str, *, with_chrome: bool = True) -> None:
+def configure(title: str, *, with_chrome: bool = True) -> dict:
+    """Draw the page and return the signed-in employee. Stops on the login screen."""
+    from app.ui.login import ensure_user
+
     st.set_page_config(
         page_title=title,
         page_icon="🔴",
@@ -70,9 +75,17 @@ def configure(title: str, *, with_chrome: bool = True) -> None:
         initial_sidebar_state="collapsed",
     )
     st.html(_CSS)
+    user = ensure_user()
     _sync_notice()
     if with_chrome:
-        st.html(page_shell())
+        st.html(page_shell(supervisor=bool(user.get("is_supervisor"))))
+    who, out = st.columns([5, 1])
+    who.caption(f"Вы вошли как {user.get('name') or 'сотрудник'}")
+    if out.button("Выйти", key="logout"):
+        from app.ui.login import logout
+
+        logout()
+    return user
 
 
 def show_home() -> None:
@@ -92,11 +105,13 @@ def show_client(card: dict) -> None:
     first = html.escape(str(card.get("name") or "—"))
     last = html.escape(str(card.get("last_name") or "—"))
     phone = html.escape(str(card.get("phone") or "—"))
+    contract = html.escape(str(card.get("contract_number") or "—"))
     st.html(
         "<dl class='mts-profile'>"
         f"<div><dt>Имя</dt><dd>{first}</dd></div>"
         f"<div><dt>Фамилия</dt><dd>{last}</dd></div>"
         f"<div><dt>Номер</dt><dd>{phone}</dd></div>"
+        f"<div><dt>Номер договора</dt><dd>{contract}</dd></div>"
         "</dl>"
     )
 
@@ -145,24 +160,36 @@ _AUDIO_FORMATS = {
 }
 
 
-def show_call_extras(call: dict) -> None:
-    """Optional dialog and audio player. The player can seek."""
+def show_call_extras(call: dict, *, with_report: bool = False) -> None:
+    """Optional report, dialog, and audio player. The player can seek."""
     from app.ui.api_client import ApiError, api_get_bytes
 
     call_id = int(call["id"])
+    report_key = f"report-open-{call_id}"
     dialog_key = f"dialog-open-{call_id}"
     audio_key = f"audio-open-{call_id}"
+    report_on = with_report and bool(st.session_state.get(report_key))
     dialog_on = bool(st.session_state.get(dialog_key))
     audio_on = bool(st.session_state.get(audio_key))
-    left, right = st.columns(2)
+    slots = st.columns(3 if with_report else 2)
+    if with_report:
+        report_label = "Скрыть отчёт" if report_on else "Отчёт"
+        if slots[0].button(report_label, key=f"report-btn-{call_id}"):
+            st.session_state[report_key] = not bool(st.session_state.get(report_key))
+            st.rerun()
+        dialog_slot, audio_slot = slots[1], slots[2]
+    else:
+        dialog_slot, audio_slot = slots
     dialog_label = "Скрыть диалог" if dialog_on else "Диалог"
     audio_label = "Скрыть запись" if audio_on else "Прослушать"
-    if left.button(dialog_label, key=f"dialog-btn-{call_id}"):
+    if dialog_slot.button(dialog_label, key=f"dialog-btn-{call_id}"):
         st.session_state[dialog_key] = not dialog_on
         st.rerun()
-    if right.button(audio_label, key=f"audio-btn-{call_id}"):
+    if audio_slot.button(audio_label, key=f"audio-btn-{call_id}"):
         st.session_state[audio_key] = not audio_on
         st.rerun()
+    if report_on:
+        show_call_report(call, list(call.get("agreements") or []))
     if dialog_on:
         show_dialog(list(call.get("utterances") or []))
     if audio_on:
@@ -285,6 +312,24 @@ def upload_aside() -> str:
     )
 
 
+def show_live_call(phase: str, phone: str) -> None:
+    """Banner while a PBX call is in progress and recording is turning on."""
+    if phase == "recording":
+        title = "Запись идёт"
+        detail = phone or "Номер ещё не пришёл"
+    elif phase == "starting":
+        title = "Звонок начался"
+        detail = f"{phone}. Запись включается" if phone else "Запись включается"
+    else:
+        return
+    st.html(
+        "<div class='mts-live'>"
+        "<i></i>"
+        f"<div><strong>{html.escape(title)}</strong>"
+        f"<span>{html.escape(detail)}</span></div></div>"
+    )
+
+
 def status_card(call_id: int, status: str, status_label: str, started: str) -> str:
     safe_status = html.escape(status)
     return (
@@ -294,11 +339,11 @@ def status_card(call_id: int, status: str, status_label: str, started: str) -> s
     )
 
 
-def page_shell(body: str = "", *, notice: bool = False) -> str:
+def page_shell(body: str = "", *, notice: bool = False, supervisor: bool = False) -> str:
     bar = ""
     if notice and not st.session_state.get("mts_notice_ok"):
         bar = _notice(bool(st.session_state.get("mts_notice_more")))
-    return f"{_header()}{body}{bar}"
+    return f"{_header(supervisor=supervisor)}{body}{bar}"
 
 
 def _sync_notice() -> None:
@@ -320,10 +365,12 @@ def _current_slug() -> str:
     return path.split("/")[-1] if path else ""
 
 
-def _header() -> str:
+def _header(*, supervisor: bool = False) -> str:
     current = _current_slug()
     links = []
     for slug, label in _NAV:
+        if slug == "Настройка" and not supervisor:
+            continue
         href = "/" if slug == "" else f"/{slug}"
         active = " class='is-active'" if current == slug else ""
         links.append(f"<a href='{href}'{active}>{html.escape(label)}</a>")

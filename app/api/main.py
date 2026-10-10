@@ -17,7 +17,9 @@ from sqlalchemy.orm import Session
 from app.agreements_service import mark_overdue
 from app.api import worker
 from app.api.atc import router as atc_router
+from app.api.auth import router as auth_router
 from app.api.deps import get_db
+from app.api.guard import require_login, require_manager, require_supervisor
 from app.api.schemas import (
     AgreementIn,
     AgreementOut,
@@ -27,18 +29,24 @@ from app.api.schemas import (
     ClientDetail,
     ClientIn,
     ClientOut,
+    HistoryOut,
     ManagerIn,
     ManagerOut,
     ManagerStats,
     ReportPatch,
     UtteranceOut,
 )
+from app.atc.access import sees_atc
 from app.atc.phones import normalize_phone
+from app.atc.service import find_client
+from app.auth import hash_password
+from app.by_phone import normalize_by_phone
 from app.config import settings
 from app.db.models import (
     Agreement,
     AgreementResponsible,
     AgreementStatus,
+    AtcCall,
     Call,
     CallStatus,
     Client,
@@ -65,7 +73,8 @@ async def lifespan(_app: FastAPI):
     worker.shutdown_executor()
 
 
-app = FastAPI(title="MTC", lifespan=lifespan)
+app = FastAPI(title="MTC", lifespan=lifespan, dependencies=[Depends(require_login)])
+app.include_router(auth_router)
 app.include_router(atc_router)
 
 
@@ -107,10 +116,18 @@ def _call_detail(call: Call) -> CallDetail:
 
 
 @app.post("/managers", response_model=ManagerOut)
-def create_manager(payload: ManagerIn, db: Session = Depends(get_db)) -> Manager:
+def create_manager(
+    payload: ManagerIn,
+    db: Session = Depends(get_db),
+    _: Manager = Depends(require_supervisor),
+) -> Manager:
+    password = (payload.password or "").strip()
+    if password and len(password) < 4:
+        raise HTTPException(status_code=400, detail="Пароль слишком короткий")
     manager = Manager(
         name=payload.name.strip(),
         phone=normalize_phone(payload.phone) or None,
+        password_hash=hash_password(password) if password else None,
         telegram_chat_id=payload.telegram_chat_id,
         is_supervisor=payload.is_supervisor,
     )
@@ -127,8 +144,13 @@ def list_managers(db: Session = Depends(get_db)) -> list[Manager]:
 
 @app.post("/clients", response_model=ClientOut)
 def create_client(payload: ClientIn, db: Session = Depends(get_db)) -> Client:
-    name, last_name, phone = _client_names(payload)
-    client = Client(name=name, last_name=last_name, phone=phone)
+    name, last_name, phone, contract_number = _client_names(payload)
+    client = Client(
+        name=name,
+        last_name=last_name,
+        phone=phone,
+        contract_number=contract_number,
+    )
     db.add(client)
     db.commit()
     db.refresh(client)
@@ -151,7 +173,14 @@ def list_clients(
             for client in clients
             if needle
             in " ".join(
-                part for part in (client.name, client.last_name, client.phone) if part
+                part
+                for part in (
+                    client.name,
+                    client.last_name,
+                    client.phone,
+                    client.contract_number,
+                )
+                if part
             ).casefold()
         ]
     return _sort_clients(clients, sort, db)
@@ -177,13 +206,17 @@ def _sort_clients(clients: list[Client], sort: str, db: Session) -> list[Client]
     )
 
 
-def _client_names(payload: ClientIn) -> tuple[str, str, str]:
+def _client_names(payload: ClientIn) -> tuple[str, str, str, str]:
     name = payload.name.strip()
     last_name = payload.last_name.strip()
-    phone = payload.phone.strip()
+    phone = normalize_by_phone(payload.phone)
+    contract_number = payload.contract_number.strip()
     if not name or not last_name or not phone:
-        raise HTTPException(status_code=400, detail="Нужны имя, фамилия и номер")
-    return name, last_name, phone
+        raise HTTPException(
+            status_code=400,
+            detail="Нужны имя, фамилия и номер: +375, код из 2 цифр и ещё 7",
+        )
+    return name, last_name, phone, contract_number
 
 
 def _forget_saved(audio_path: str, call_id: int) -> None:
@@ -206,10 +239,11 @@ def update_client(client_id: int, payload: ClientIn, db: Session = Depends(get_d
     client = db.get(Client, client_id)
     if client is None:
         raise HTTPException(status_code=404, detail="Клиент не найден")
-    name, last_name, phone = _client_names(payload)
+    name, last_name, phone, contract_number = _client_names(payload)
     client.name = name
     client.last_name = last_name
     client.phone = phone
+    client.contract_number = contract_number
     db.commit()
     db.refresh(client)
     return client
@@ -318,6 +352,99 @@ def list_calls(
     if status is not None:
         stmt = stmt.where(Call.status == status)
     return list(db.scalars(stmt).all())
+
+
+@app.get("/history", response_model=list[HistoryOut])
+def call_history(
+    limit: int = 40,
+    db: Session = Depends(get_db),
+    manager: Manager = Depends(require_manager),
+) -> list[HistoryOut]:
+    """This employee's latest calls, including a PBX call that has no report yet."""
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="Слишком длинный список")
+    items = [_history_call(call) for call in _recent_calls(db, limit, manager.id)]
+    pending = [row for row in _pending_atc(db, limit) if sees_atc(row, manager, db)]
+    items.extend(_history_atc(row, db) for row in pending)
+    items.sort(key=_history_order)
+    return items[:limit]
+
+
+def _recent_calls(db: Session, limit: int, manager_id: int) -> list[Call]:
+    return list(
+        db.scalars(
+            select(Call)
+            .where(Call.manager_id == manager_id)
+            .order_by(Call.started_at.desc(), Call.id.desc())
+            .limit(limit)
+        ).all()
+    )
+
+
+def _pending_atc(db: Session, limit: int) -> list[AtcCall]:
+    return list(
+        db.scalars(
+            select(AtcCall)
+            .where(AtcCall.call_id.is_(None))
+            .order_by(AtcCall.id.desc())
+            .limit(limit)
+        ).all()
+    )
+
+
+def _history_call(call: Call) -> HistoryOut:
+    client = call.client
+    name = " ".join(part for part in (client.name, client.last_name) if part).strip()
+    if call.status == CallStatus.ERROR:
+        status = "error"
+    elif call.status == CallStatus.EXTRACTED:
+        status = "ready"
+    else:
+        status = "preparing"
+    return HistoryOut(
+        call_id=call.id,
+        client_id=client.id,
+        started_at=call.started_at,
+        client_name=name,
+        phone=client.phone,
+        status=status,
+        topic=call.report_topic or "",
+        error_message=call.error_message,
+    )
+
+
+def _history_atc(row: AtcCall, db: Session) -> HistoryOut:
+    client = find_client(db, row.caller_phone)
+    if client is None:
+        name = ""
+        phone = row.caller_phone
+        client_id = None
+    else:
+        name = " ".join(part for part in (client.name, client.last_name) if part).strip()
+        phone = client.phone
+        client_id = client.id
+    if row.ended_at is None:
+        status = "recording" if row.recording_on else "starting"
+    else:
+        status = "waiting_recording"
+    return HistoryOut(
+        call_id=None,
+        client_id=client_id,
+        started_at=row.started_at,
+        client_name=name,
+        phone=phone,
+        status=status,
+        topic="",
+        error_message=row.note or None,
+    )
+
+
+def _history_order(item: HistoryOut) -> tuple[int, float, int]:
+    ongoing = item.status in {"starting", "recording"}
+    stamp = item.started_at or datetime.min.replace(tzinfo=UTC)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    return (0 if ongoing else 1, -stamp.timestamp(), -(item.call_id or 0))
 
 
 @app.get("/calls/{call_id}", response_model=CallDetail)

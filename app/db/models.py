@@ -53,6 +53,9 @@ class Client(Base):
         String(255), nullable=False, default="", server_default=""
     )
     phone: Mapped[str] = mapped_column(String(64), nullable=False)
+    contract_number: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="", server_default=""
+    )
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -68,6 +71,7 @@ class Manager(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_supervisor: Mapped[bool] = mapped_column(default=False, nullable=False)
 
@@ -170,5 +174,28 @@ class AtcCall(Base):
     )
     call_id: Mapped[int | None] = mapped_column(ForeignKey("calls.id"), nullable=True)
     recording_path: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    recording_on: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="0")
     note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     last_event: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class AuthSession(Base):
+    """One browser login. The raw token is not stored, only its hash."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    manager_id: Mapped[int] = mapped_column(ForeignKey("managers.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class AppSetting(Base):
+    """A value saved from the settings screen. Overrides the environment when present."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")

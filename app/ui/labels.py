@@ -29,6 +29,20 @@ def call_status_ru(status: str) -> str:
     return CALL_STATUS_RU.get(status, status)
 
 
+HISTORY_STATUS_RU = {
+    "starting": "Запись включается",
+    "recording": "Идёт запись",
+    "waiting_recording": "Ждёт файл",
+    "preparing": "Готовится отчёт",
+    "ready": "Готов",
+    "error": "Ошибка",
+}
+
+
+def history_status_ru(status: str) -> str:
+    return HISTORY_STATUS_RU.get(status, status)
+
+
 def agreement_status_ru(status: str) -> str:
     return AGREEMENT_STATUS_RU.get(status, status)
 

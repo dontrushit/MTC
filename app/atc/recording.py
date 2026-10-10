@@ -7,24 +7,27 @@ import logging
 import urllib.error
 import urllib.request
 
-from app.config import settings
+from app.atc.options import load_options
+from app.db.session import get_session
 
 logger = logging.getLogger(__name__)
 
 
 def fetch_recording(external_id: str) -> bytes | None:
-    """GET ATC_RECORDING_URL with {call_id} filled in. Empty setting means not yet.
+    """GET the recording URL with {call_id} filled in. An empty URL skips the download.
 
-    When MTS gives the real recording URL and API key, put the URL in
-    ATC_RECORDING_URL. If their API is not a simple GET, change only this function.
+    The address is saved on the settings screen. If the MTS API is not a simple GET,
+    change only this function.
     """
-    template = settings.ATC_RECORDING_URL.strip()
+    with get_session() as session:
+        options = load_options(session)
+    template = options.recording_url
     if not template:
         return None
     url = template.format(call_id=external_id)
     request = urllib.request.Request(url)
-    user = settings.ATC_BASIC_USER
-    password = settings.ATC_BASIC_PASSWORD
+    user = options.basic_user
+    password = options.basic_password
     if user or password:
         token = base64.b64encode(f"{user}:{password}".encode()).decode("ascii")
         request.add_header("Authorization", f"Basic {token}")

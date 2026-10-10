@@ -17,6 +17,7 @@ class ClientIn(BaseModel):
     name: str = Field(min_length=1)
     last_name: str = Field(min_length=1)
     phone: str = Field(min_length=1)
+    contract_number: str = ""
 
 
 class ClientOut(OrmOut):
@@ -24,12 +25,14 @@ class ClientOut(OrmOut):
     name: str
     last_name: str
     phone: str
+    contract_number: str
     created_at: datetime
 
 
 class ManagerIn(BaseModel):
     name: str = Field(min_length=1)
     phone: str | None = None
+    password: str | None = None
     telegram_chat_id: str | None = None
     is_supervisor: bool = False
 
@@ -40,6 +43,17 @@ class ManagerOut(OrmOut):
     phone: str | None
     telegram_chat_id: str | None
     is_supervisor: bool
+
+
+class HistoryOut(BaseModel):
+    call_id: int | None
+    client_id: int | None
+    started_at: datetime | None
+    client_name: str
+    phone: str
+    status: str
+    topic: str = ""
+    error_message: str | None = None
 
 
 class CallOut(OrmOut):

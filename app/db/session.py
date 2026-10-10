@@ -34,8 +34,11 @@ def init_db() -> None:
     """Create all tables if they do not exist."""
     Base.metadata.create_all(bind=engine)
     _ensure_client_last_name()
+    _ensure_client_contract_number()
     _ensure_call_report()
     _ensure_manager_phone()
+    _ensure_manager_password()
+    _ensure_atc_recording_on()
 
 
 def _ensure_client_last_name() -> None:
@@ -51,6 +54,24 @@ def _ensure_client_last_name() -> None:
             conn.execute(
                 text(
                     "ALTER TABLE clients ADD COLUMN last_name VARCHAR(255) "
+                    "NOT NULL DEFAULT ''"
+                )
+            )
+
+
+def _ensure_client_contract_number() -> None:
+    """Add an optional contract number to clients created before the field existed."""
+    if not settings.DB_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(clients)")).fetchall()
+        if not rows:
+            return
+        columns = {row[1] for row in rows}
+        if "contract_number" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE clients ADD COLUMN contract_number VARCHAR(128) "
                     "NOT NULL DEFAULT ''"
                 )
             )
@@ -85,3 +106,34 @@ def _ensure_manager_phone() -> None:
         columns = {row[1] for row in rows}
         if "phone" not in columns:
             conn.execute(text("ALTER TABLE managers ADD COLUMN phone VARCHAR(64)"))
+
+
+def _ensure_manager_password() -> None:
+    """Add the login password column to managers created before sign-in."""
+    if not settings.DB_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(managers)")).fetchall()
+        if not rows:
+            return
+        columns = {row[1] for row in rows}
+        if "password_hash" not in columns:
+            conn.execute(text("ALTER TABLE managers ADD COLUMN password_hash VARCHAR(255)"))
+
+
+def _ensure_atc_recording_on() -> None:
+    """Remember that the PBX has started recording this call."""
+    if not settings.DB_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(atc_calls)")).fetchall()
+        if not rows:
+            return
+        columns = {row[1] for row in rows}
+        if "recording_on" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE atc_calls ADD COLUMN recording_on BOOLEAN "
+                    "NOT NULL DEFAULT 0"
+                )
+            )

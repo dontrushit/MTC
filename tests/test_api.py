@@ -73,9 +73,34 @@ def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[get_db] = _override
     try:
         with TestClient(app) as client:
-            yield {"client": client, "submitted": submitted, "Session": factory}
+            manager_id = _sign_in(client, factory)
+            yield {
+                "client": client,
+                "submitted": submitted,
+                "Session": factory,
+                "manager_id": manager_id,
+            }
     finally:
         app.dependency_overrides.clear()
+
+
+def _sign_in(client: TestClient, factory) -> int:
+    """Log the test client in as the employee who may change the PBX settings."""
+    from app.auth import hash_password
+
+    with factory() as session:
+        boss = Manager(
+            name="Служебный",
+            password_hash=hash_password("test-pass"),
+            is_supervisor=True,
+        )
+        session.add(boss)
+        session.commit()
+        manager_id = boss.id
+    response = client.post("/auth/login", json={"name": "Служебный", "password": "test-pass"})
+    assert response.status_code == 200, response.text
+    client.headers["Authorization"] = f"Bearer {response.json()['token']}"
+    return manager_id
 
 
 def _manager(api: dict, name: str = "Анна") -> dict:
@@ -87,7 +112,7 @@ def _manager(api: dict, name: str = "Анна") -> dict:
 def _customer(api: dict) -> dict:
     response = api["client"].post(
         "/clients",
-        json={"name": "Иван", "last_name": "Петров", "phone": "+74951234567"},
+        json={"name": "Иван", "last_name": "Петров", "phone": "+375291234567"},
     )
     assert response.status_code == 200
     return response.json()
@@ -99,25 +124,25 @@ def test_create_manager_and_client(api: dict) -> None:
     assert manager["is_supervisor"] is False
     listed = api["client"].get("/managers")
     assert listed.status_code == 200
-    assert [item["name"] for item in listed.json()] == ["Анна"]
+    assert [item["name"] for item in listed.json()] == ["Анна", "Служебный"]
 
     customer = _customer(api)
     assert customer["name"] == "Иван"
     assert customer["last_name"] == "Петров"
-    assert customer["phone"] == "+74951234567"
+    assert customer["phone"] == "+375291234567"
     found = api["client"].get("/clients", params={"q": "петров"})
     assert [item["id"] for item in found.json()] == [customer["id"]]
-    by_phone = api["client"].get("/clients", params={"q": "495123"})
+    by_phone = api["client"].get("/clients", params={"q": "291234"})
     assert [item["id"] for item in by_phone.json()] == [customer["id"]]
 
 
 def test_clients_sort_by_name_surname_and_call(api: dict) -> None:
     manager = _manager(api)
     boris = api["client"].post(
-        "/clients", json={"name": "Борис", "last_name": "Яковлев", "phone": "+79000000001"}
+        "/clients", json={"name": "Борис", "last_name": "Яковлев", "phone": "+375290000001"}
     ).json()
     anna = api["client"].post(
-        "/clients", json={"name": "Анна", "last_name": "Андреева", "phone": "+79000000002"}
+        "/clients", json={"name": "Анна", "last_name": "Андреева", "phone": "+375290000002"}
     ).json()
     api["client"].post(
         "/calls",
@@ -479,22 +504,54 @@ def test_update_client(api: dict) -> None:
     customer = _customer(api)
     patched = api["client"].patch(
         f"/clients/{customer['id']}",
-        json={"name": "Мария", "last_name": "Иванова", "phone": "+79001112233"},
+        json={"name": "Мария", "last_name": "Иванова", "phone": "+375291112233"},
     )
     assert patched.status_code == 200
     body = patched.json()
     assert body["name"] == "Мария"
     assert body["last_name"] == "Иванова"
-    assert body["phone"] == "+79001112233"
+    assert body["phone"] == "+375291112233"
+    assert body["contract_number"] == ""
+
+    with_contract = api["client"].patch(
+        f"/clients/{customer['id']}",
+        json={
+            "name": "Мария",
+            "last_name": "Иванова",
+            "phone": "+375291112233",
+            "contract_number": "  Д-15  ",
+        },
+    )
+    assert with_contract.status_code == 200
+    assert with_contract.json()["contract_number"] == "Д-15"
+    found = api["client"].get("/clients", params={"q": "д-15"})
+    assert [item["id"] for item in found.json()] == [customer["id"]]
+
+    cleared = api["client"].patch(
+        f"/clients/{customer['id']}",
+        json={
+            "name": "Мария",
+            "last_name": "Иванова",
+            "phone": "+375291112233",
+            "contract_number": "   ",
+        },
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["contract_number"] == ""
 
     blank = api["client"].patch(
         f"/clients/{customer['id']}",
-        json={"name": " ", "last_name": "Иванова", "phone": "+79001112233"},
+        json={"name": " ", "last_name": "Иванова", "phone": "+375291112233"},
     )
     assert blank.status_code == 400
+    foreign = api["client"].patch(
+        f"/clients/{customer['id']}",
+        json={"name": "Мария", "last_name": "Иванова", "phone": "+79001112233"},
+    )
+    assert foreign.status_code == 400
     missing = api["client"].patch(
         "/clients/99999",
-        json={"name": "А", "last_name": "Б", "phone": "1"},
+        json={"name": "А", "last_name": "Б", "phone": "+375291112233"},
     )
     assert missing.status_code == 404
 
@@ -517,6 +574,77 @@ def test_delete_client_removes_calls_and_file(api: dict) -> None:
     assert api["client"].get(f"/clients/{customer['id']}").status_code == 404
     assert api["client"].get(f"/calls/{call_id}").status_code == 404
     assert not audio_path.exists()
+
+
+def test_report_and_agreements_can_be_edited(api: dict) -> None:
+    with api["Session"]() as session:
+        customer = Client(name="Олег", last_name="Иванов", phone="+79001112233")
+        manager = Manager(name="Анна")
+        session.add_all([customer, manager])
+        session.flush()
+        call = Call(
+            client_id=customer.id,
+            manager_id=manager.id,
+            audio_path="data/raw/manual.wav",
+            started_at=datetime.now(UTC),
+            duration_sec=10,
+            channels=1,
+            status=CallStatus.EXTRACTED,
+            report_topic="Симка",
+            report_summary="Заказ симки",
+            report_json='{"topic": "Симка", "brief": "Заказ симки", "unresolved": ""}',
+        )
+        session.add(call)
+        session.flush()
+        agreement = Agreement(
+            call_id=call.id,
+            client_id=customer.id,
+            action="Забрать симку",
+            responsible=AgreementResponsible.CLIENT,
+            due_text="завтра",
+            quote="завтра заберу",
+        )
+        session.add(agreement)
+        session.commit()
+        call_id = call.id
+        agreement_id = agreement.id
+
+    edited = api["client"].patch(
+        f"/calls/{call_id}/report",
+        json={"topic": "Заказ сим-карты", "brief": "Клиент заказывает симку", "unresolved": "Цена"},
+    )
+    assert edited.status_code == 200
+    body = edited.json()
+    assert body["report_topic"] == "Заказ сим-карты"
+    assert "Цена" in body["report_json"]
+
+    patched = api["client"].patch(
+        f"/agreements/{agreement_id}",
+        json={
+            "action": "Забрать сим-карту",
+            "responsible": "manager",
+            "due_date": "2026-10-15",
+            "amount": "15 RUB",
+        },
+    )
+    assert patched.status_code == 200
+    assert patched.json()["action"] == "Забрать сим-карту"
+    assert patched.json()["responsible"] == "manager"
+    assert patched.json()["due_date"] == "2026-10-15"
+    assert patched.json()["amount"] == "15 RUB"
+
+    created = api["client"].post(
+        f"/calls/{call_id}/agreements",
+        json={"action": "Перезвонить", "responsible": "manager", "due_date": "2026-10-11"},
+    )
+    assert created.status_code == 200
+    new_id = created.json()["id"]
+
+    removed = api["client"].delete(f"/agreements/{agreement_id}")
+    assert removed.status_code == 204
+    detail = api["client"].get(f"/calls/{call_id}").json()
+    assert [item["id"] for item in detail["agreements"]] == [new_id]
+    assert api["client"].delete("/agreements/99999").status_code == 404
 
 
 def test_delete_one_call(api: dict) -> None:

@@ -42,9 +42,13 @@ def _detail(response: httpx.Response) -> str:
 
 def _request(method: str, path: str, **kwargs: Any) -> httpx.Response:
     url = settings.API_URL.rstrip("/") + path
+    headers = dict(kwargs.pop("headers", {}) or {})
+    token = _screen_token()
+    if token and "Authorization" not in headers:
+        headers["Authorization"] = f"Bearer {token}"
     try:
         with httpx.Client(timeout=60) as client:
-            response = client.request(method, url, **kwargs)
+            response = client.request(method, url, headers=headers, **kwargs)
     except httpx.ConnectError:
         raise ApiError("Не удалось подключиться к API. Запустите сервер на порту 8000.") from None
     except httpx.TimeoutException:
@@ -74,8 +78,21 @@ def api_patch(path: str, payload: dict[str, Any]) -> Any:
     return _request("PATCH", path, json=payload).json()
 
 
+def api_put(path: str, payload: dict[str, Any]) -> Any:
+    return _request("PUT", path, json=payload).json()
+
+
 def api_delete(path: str) -> None:
     _request("DELETE", path)
+
+
+def _screen_token() -> str:
+    try:
+        import streamlit as st
+
+        return str(st.session_state.get("auth_token") or "")
+    except Exception:
+        return ""
 
 
 def api_get_bytes(path: str) -> tuple[bytes, str]:

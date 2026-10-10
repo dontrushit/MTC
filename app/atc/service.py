@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,15 +12,15 @@ from sqlalchemy.orm import Session
 
 from app.api import worker
 from app.atc import recording
+from app.atc.options import load_options
 from app.atc.phones import normalize_phone
 from app.config import settings
 from app.db.models import AtcCall, AtcCallStatus, Call, CallStatus, Client, Manager
 from app.db.session import get_session
 
-logger = logging.getLogger(__name__)
-
 TRANSFER = 9
 SHORT_TRANSFER = 11
+REC_START = 13
 REC_STOP = 14
 END_CALL = 15
 STATISTICS = 26
@@ -49,6 +48,8 @@ def ingest_event(session: Session, payload: dict) -> IngestResult:
     row = _get_or_create(session, external_id)
     if event_type is not None:
         row.last_event = event_type
+    if event_type == REC_START:
+        row.recording_on = True
 
     when = _parse_time(payload.get("EventTime"))
     if row.started_at is None:
@@ -77,7 +78,7 @@ def ingest_event(session: Session, payload: dict) -> IngestResult:
         result.fetch = (
             call_id is None
             and not _recording_ready(row)
-            and bool(settings.ATC_RECORDING_URL.strip())
+            and bool(load_options(session).recording_url)
         )
     elif row.call_id is not None:
         result.call_id = row.call_id
@@ -128,10 +129,10 @@ def queue_recording(session: Session, row: AtcCall) -> tuple[int | None, bool]:
     if row.ended_at is None or not _recording_ready(row):
         if row.ended_at is not None:
             row.status = AtcCallStatus.WAITING_RECORDING
-            if not settings.ATC_RECORDING_URL.strip():
+            if not load_options(session).recording_url:
                 row.note = (
                     "Нет файла записи. Когда МТС даст ссылку, "
-                    "её достаточно вписать в ATC_RECORDING_URL."
+                    "впишите её на экране «Настройка АТС»."
                 )
         return None, False
     if not row.caller_phone:
@@ -142,7 +143,7 @@ def queue_recording(session: Session, row: AtcCall) -> tuple[int | None, bool]:
     manager = resolve_manager(session, row.agent_phone)
     if manager is None:
         row.status = AtcCallStatus.WAITING_RECORDING
-        row.note = "Нет менеджера. Добавьте менеджера или укажите ATC_MANAGER_ID."
+        row.note = "Нет менеджера. Добавьте менеджера на экране «Настройка АТС»."
         return None, False
 
     client = find_client(session, row.caller_phone)
@@ -189,7 +190,7 @@ def resolve_manager(session: Session, agent_phone: str) -> Manager | None:
         for manager in managers:
             if normalize_phone(manager.phone) == target:
                 return manager
-    configured = _configured_manager_id()
+    configured = load_options(session).manager_id
     if configured is not None:
         for manager in managers:
             if manager.id == configured:
@@ -261,17 +262,6 @@ def _carries_agent(event_type: int | None, payload: dict) -> bool:
     if event_type == SHORT_TRANSFER:
         return bool(payload.get("DN1") or payload.get("EXT1"))
     return False
-
-
-def _configured_manager_id() -> int | None:
-    raw = str(settings.ATC_MANAGER_ID or "").strip()
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("ATC_MANAGER_ID is not a number")
-        return None
 
 
 def _parse_time(value: object) -> datetime | None:

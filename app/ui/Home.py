@@ -1,7 +1,7 @@
 """Call screen: record or upload, then show the report."""
 
 import time as time_module
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -9,15 +9,17 @@ import streamlit as st
 from app.config import settings
 from app.ui.api_client import ApiError, api_get, api_patch, api_post
 from app.ui.labels import call_status_ru, format_dt
+from app.ui.phone_form import client_phone_input
 from app.ui.theme import (
     configure,
     page_heading,
     show_call_extras,
     show_call_report,
+    show_live_call,
     show_section,
 )
 
-configure("Звонок")
+user = configure("Звонок")
 
 
 def _show_progress() -> None:
@@ -59,20 +61,26 @@ def _done_button(agreement: dict) -> None:
         st.rerun()
 
 
+@st.fragment(run_every=timedelta(seconds=2))
+def _live_recording() -> None:
+    """Refresh only this banner, so a new PBX call shows that recording started."""
+    try:
+        live = api_get("/atc/live")
+    except ApiError:
+        return
+    show_live_call(str(live.get("phase") or "idle"), str(live.get("caller_phone") or ""))
+
+
 def main() -> None:
     page_heading("Звонок", "Нажмите микрофон в начале разговора и остановите в конце.")
-    managers = api_get("/managers")
+    _live_recording()
     clients = api_get("/clients")
-    if not managers:
-        st.warning("Нет менеджеров. Создайте менеджера через API или scripts/seed_demo.py.")
-        return
-    _call_form(managers, clients)
+    _call_form(int(user["id"]), clients)
     _show_progress()
     _show_report()
 
 
-def _call_form(managers: list[dict], clients: list[dict]) -> None:
-    manager_id = _manager_id(managers)
+def _call_form(manager_id: int, clients: list[dict]) -> None:
     client_id = _client_fields(clients)
     recorded = st.audio_input("Запись звонка", sample_rate=16000)
     if recorded is not None and recorded.getvalue():
@@ -149,19 +157,6 @@ def _submit_audio(
     st.rerun()
 
 
-def _manager_id(managers: list[dict]) -> int:
-    if len(managers) == 1:
-        return int(managers[0]["id"])
-    names = {item["id"]: item["name"] for item in managers}
-    return int(
-        st.selectbox(
-            "Менеджер",
-            options=list(names),
-            format_func=lambda item_id: names[item_id],
-        )
-    )
-
-
 def _client_fields(clients: list[dict]) -> int | None:
     client_id = None
     if clients:
@@ -182,19 +177,28 @@ def _client_fields(clients: list[dict]) -> int | None:
             st.session_state["new_client_name"] = ""
             st.session_state["new_client_last"] = ""
             st.session_state["new_client_phone"] = ""
+            st.session_state["new-op"] = ""
+            st.session_state["new-num"] = ""
+            st.session_state["new_client_contract"] = ""
         name = st.text_input("Имя", key="new_client_name")
         last_name = st.text_input("Фамилия", key="new_client_last")
-        phone = st.text_input("Номер", key="new_client_phone")
+        phone = client_phone_input("new")
+        contract_number = st.text_input(
+            "Номер договора",
+            key="new_client_contract",
+            placeholder="Необязательно",
+        )
         if st.button("Добавить клиента", type="primary"):
-            if not name.strip() or not last_name.strip() or not phone.strip():
-                st.warning("Нужны имя, фамилия и номер.")
+            if not name.strip() or not last_name.strip() or not phone:
+                st.warning("Нужны имя, фамилия и номер: +375, код и 7 цифр.")
             else:
                 created = api_post(
                     "/clients",
                     json={
                         "name": name.strip(),
                         "last_name": last_name.strip(),
-                        "phone": phone.strip(),
+                        "phone": phone,
+                        "contract_number": contract_number.strip(),
                     },
                 )
                 st.session_state["select_client_id"] = int(created["id"])
@@ -206,7 +210,10 @@ def _client_fields(clients: list[dict]) -> int | None:
 def _client_label(clients: list[dict], client_id: int) -> str:
     client = next(item for item in clients if item["id"] == client_id)
     full = " ".join(part for part in (client.get("name"), client.get("last_name")) if part)
-    return f"{full} — {client['phone']}"
+    bits = [full, client["phone"]]
+    if client.get("contract_number"):
+        bits.append(str(client["contract_number"]))
+    return " — ".join(bits)
 
 
 try:
