@@ -16,12 +16,12 @@ from sqlalchemy.orm import Session
 
 from app.agreements_service import mark_overdue
 from app.api import worker
+from app.api.atc import router as atc_router
 from app.api.deps import get_db
 from app.api.schemas import (
     AgreementIn,
     AgreementOut,
     AgreementPatch,
-    ReportPatch,
     CallDetail,
     CallOut,
     ClientDetail,
@@ -30,8 +30,10 @@ from app.api.schemas import (
     ManagerIn,
     ManagerOut,
     ManagerStats,
+    ReportPatch,
     UtteranceOut,
 )
+from app.atc.phones import normalize_phone
 from app.config import settings
 from app.db.models import (
     Agreement,
@@ -64,6 +66,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="MTC", lifespan=lifespan)
+app.include_router(atc_router)
 
 
 def _today() -> date:
@@ -107,6 +110,7 @@ def _call_detail(call: Call) -> CallDetail:
 def create_manager(payload: ManagerIn, db: Session = Depends(get_db)) -> Manager:
     manager = Manager(
         name=payload.name.strip(),
+        phone=normalize_phone(payload.phone) or None,
         telegram_chat_id=payload.telegram_chat_id,
         is_supervisor=payload.is_supervisor,
     )

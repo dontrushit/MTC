@@ -29,6 +29,7 @@ class ClientOut(OrmOut):
 
 class ManagerIn(BaseModel):
     name: str = Field(min_length=1)
+    phone: str | None = None
     telegram_chat_id: str | None = None
     is_supervisor: bool = False
 
@@ -36,6 +37,7 @@ class ManagerIn(BaseModel):
 class ManagerOut(OrmOut):
     id: int
     name: str
+    phone: str | None
     telegram_chat_id: str | None
     is_supervisor: bool
 

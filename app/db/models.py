@@ -38,6 +38,12 @@ class AgreementStatus(enum.StrEnum):
     CANCELLED = "cancelled"
 
 
+class AtcCallStatus(enum.StrEnum):
+    OPEN = "open"
+    WAITING_RECORDING = "waiting_recording"
+    QUEUED = "queued"
+
+
 class Client(Base):
     __tablename__ = "clients"
 
@@ -61,6 +67,7 @@ class Manager(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_supervisor: Mapped[bool] = mapped_column(default=False, nullable=False)
 
@@ -142,3 +149,26 @@ class Agreement(Base):
 
     call: Mapped[Call] = relationship(back_populates="agreements")
     client: Mapped[Client] = relationship(back_populates="agreements")
+
+
+class AtcCall(Base):
+    """One phone-platform call, before or after its recording is queued."""
+
+    __tablename__ = "atc_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    external_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    caller_phone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    agent_phone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[AtcCallStatus] = mapped_column(
+        Enum(AtcCallStatus, native_enum=False, length=32),
+        default=AtcCallStatus.OPEN,
+        nullable=False,
+    )
+    call_id: Mapped[int | None] = mapped_column(ForeignKey("calls.id"), nullable=True)
+    recording_path: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    last_event: Mapped[int | None] = mapped_column(Integer, nullable=True)

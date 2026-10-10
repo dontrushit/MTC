@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     HF_TOKEN: str = ""
     TZ: str = "Europe/Moscow"
     API_URL: str = "http://localhost:8000"
+    # MTS Автосекретарь. Empty user and password means the event URL is open.
+    ATC_BASIC_USER: str = ""
+    ATC_BASIC_PASSWORD: str = ""
+    # GET template, for example https://host/recordings/{call_id}. Empty skips download.
+    ATC_RECORDING_URL: str = ""
+    # Used when the agent number matches nobody. Empty falls back to the first manager.
+    ATC_MANAGER_ID: str = ""
 
 
 settings = Settings()

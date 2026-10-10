@@ -35,6 +35,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_client_last_name()
     _ensure_call_report()
+    _ensure_manager_phone()
 
 
 def _ensure_client_last_name() -> None:
@@ -71,3 +72,16 @@ def _ensure_call_report() -> None:
         ):
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE calls ADD COLUMN {name} {ddl}"))
+
+
+def _ensure_manager_phone() -> None:
+    """Add phone so an agent number from the PBX can be matched to a manager."""
+    if not settings.DB_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(managers)")).fetchall()
+        if not rows:
+            return
+        columns = {row[1] for row in rows}
+        if "phone" not in columns:
+            conn.execute(text("ALTER TABLE managers ADD COLUMN phone VARCHAR(64)"))
