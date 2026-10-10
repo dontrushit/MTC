@@ -54,6 +54,7 @@ from app.db.models import (
     Utterance,
 )
 from app.db.session import init_db
+from app.extraction.dates import resolve_due
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac"}
 MEDIA_TYPES = {
@@ -557,14 +558,17 @@ def create_agreement(
     if call is None:
         raise HTTPException(status_code=404, detail="Звонок не найден")
     due_text = payload.due_text.strip()
-    if payload.due_date is not None and not due_text:
-        due_text = payload.due_date.isoformat()
+    due_date = payload.due_date
+    if due_date is not None and not due_text:
+        due_text = due_date.isoformat()
+    if due_date is None and due_text:
+        due_date = resolve_due(due_text, call.started_at, ZoneInfo(settings.TZ))
     agreement = Agreement(
         call_id=call.id,
         client_id=call.client_id,
         action=payload.action.strip(),
         responsible=payload.responsible,
-        due_date=payload.due_date,
+        due_date=due_date,
         due_text=due_text,
         amount=_blank_to_none(payload.amount),
         conditions=_blank_to_none(payload.conditions),
@@ -600,6 +604,12 @@ def patch_agreement(
         data["due_text"] = data["due_text"].strip()
     if data.get("due_date") is not None and not data.get("due_text"):
         data["due_text"] = data["due_date"].isoformat()
+    if data.get("due_text") and "due_date" not in data:
+        call = db.get(Call, agreement.call_id)
+        if call is not None:
+            data["due_date"] = resolve_due(
+                data["due_text"], call.started_at, ZoneInfo(settings.TZ)
+            )
     for key, value in data.items():
         setattr(agreement, key, value)
     agreement.updated_at = datetime.now(UTC)

@@ -122,6 +122,10 @@ def show_agreement(agreement: dict) -> None:
     bits = [responsible_ru(str(agreement.get("responsible") or ""))]
     if agreement.get("due_date"):
         bits.append(f"срок {_ru_date(str(agreement['due_date']))}")
+    elif agreement.get("due_text"):
+        bits.append(f"срок {agreement['due_text']}")
+    else:
+        bits.append("срок не обговорен")
     if agreement.get("amount"):
         bits.append(str(agreement["amount"]))
     conditions = str(agreement.get("conditions") or "")
@@ -251,6 +255,8 @@ def _agreement_block(agreements: list[dict]) -> str:
             bits.append(_ru_date(str(agreement["due_date"])))
         elif agreement.get("due_text"):
             bits.append(str(agreement["due_text"]))
+        else:
+            bits.append("не обговорено")
         if agreement.get("amount"):
             bits.append(str(agreement["amount"]))
         conditions = str(agreement.get("conditions") or "").strip()
