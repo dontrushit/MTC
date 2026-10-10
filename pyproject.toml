@@ -25,7 +25,14 @@ audio = [
     "setuptools>=70,<81",
 ]
 asr = [
+    "mlx-whisper; sys_platform == 'darwin'",
+    "faster-whisper; sys_platform == 'linux'",
+]
+asr-macos = [
     "mlx-whisper",
+]
+asr-linux = [
+    "faster-whisper",
 ]
 diarization = [
     "pyannote.audio",

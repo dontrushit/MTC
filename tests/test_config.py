@@ -13,3 +13,7 @@ def test_settings_singleton_import() -> None:
 def test_settings_defaults_without_env_file() -> None:
     defaults = Settings(_env_file=None)
     assert defaults.OLLAMA_MODEL == "qwen2.5:14b"
+    assert defaults.WHISPER_BACKEND == "auto"
+    assert defaults.WHISPER_DEVICE == "auto"
+    assert defaults.WHISPER_COMPUTE_TYPE == "auto"
+    assert defaults.WHISPER_MODEL == "mlx-community/whisper-large-v3-turbo"

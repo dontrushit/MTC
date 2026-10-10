@@ -1,16 +1,15 @@
-"""Channel-wise ASR with mlx-whisper and hallucination filtering."""
+"""Channel-wise ASR with hallucination filtering (mlx-whisper or faster-whisper)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
-import mlx_whisper
 import numpy as np
 import soundfile as sf
 
+from app.asr.backend import transcribe_audio
 from app.audio.vad import speech_segments
-from app.config import settings
 from app.db.models import SpeakerRole
 
 SAMPLE_RATE = 16000
@@ -87,12 +86,7 @@ def transcribe_channel(wav_path: Path | str, speaker: SpeakerRole) -> list[Segme
         i1 = int(round(pad_end * SAMPLE_RATE))
         chunk = np.ascontiguousarray(audio[i0:i1], dtype=np.float32)
 
-        result = mlx_whisper.transcribe(
-            chunk,
-            path_or_hf_repo=settings.WHISPER_MODEL,
-            language="ru",
-            condition_on_previous_text=False,
-        )
+        result = transcribe_audio(chunk)
         text = _text_from_whisper_result(result)
         if not text:
             continue
