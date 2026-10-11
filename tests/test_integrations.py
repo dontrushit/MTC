@@ -477,6 +477,7 @@ def test_notify_report_ready_offline_and_send(api: dict, monkeypatch) -> None:
         session.commit()
     with api["Session"]() as session:
         tg.notify_report_ready(session, call_id)
+        session.commit()
     assert sent and sent[0][0] == "4242" and "Договорённостей" in sent[0][2]
     audit = api["client"].get("/audit").json()
     assert any(
