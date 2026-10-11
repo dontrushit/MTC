@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
@@ -96,6 +97,12 @@ MEDIA_TYPES = {
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    logging.basicConfig(level=logging.INFO)
+    events = settings.DATA_DIR / "logs"
+    events.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(events / "events.log", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
+    logging.getLogger("app.pipeline").addHandler(handler)
     init_db()
     worker.requeue_stuck()
     yield

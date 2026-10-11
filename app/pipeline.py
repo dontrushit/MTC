@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import logging
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -32,6 +33,10 @@ from app.extraction.verify import normalize_quote, verify_agreements
 from app.rules import classify, load_rules
 
 
+def _log(call_id: int, message: str) -> None:
+    logging.getLogger("app.pipeline").info("звонок #%s: %s", call_id, message)
+
+
 def process_call(call_id: int) -> None:
     """Transcribe a call by id, extract agreements, persist (idempotent on re-run)."""
     session = SessionLocal()
@@ -45,24 +50,29 @@ def process_call(call_id: int) -> None:
         call.error_message = None
         session.commit()
 
+        _log(call_id, "начало обработки: запись получена")
         audio_path = Path(call.audio_path)
         working = _unlock_for_job(audio_path)
         info = probe(working)
         call.duration_sec = int(round(info.duration_sec))
         call.channels = info.channels
 
+        _log(call_id, f"дорожки нарезаны: каналов {info.channels}, длит {info.duration_sec:.1f} с")
         out_dir = settings.DATA_DIR / "processed" / str(call_id)
         channel_paths = prepare_channels(working, out_dir)
+        _log(call_id, "уровни VAD посчитаны")
 
         speech_segments(channel_paths[SpeakerRole.MANAGER])
         speech_segments(channel_paths[SpeakerRole.CLIENT])
 
+        _log(call_id, "расшифровка: локальный whisper (large)")
         segs_manager = transcribe_channel(
             channel_paths[SpeakerRole.MANAGER], SpeakerRole.MANAGER
         )
         segs_client = transcribe_channel(
             channel_paths[SpeakerRole.CLIENT], SpeakerRole.CLIENT
         )
+        _log(call_id, f"расшифровка готова: реплик {len(segs_manager) + len(segs_client)}")
         dialog = resolve_roles(merge_dialog(segs_manager, segs_client))
 
         session.execute(delete(Utterance).where(Utterance.call_id == call_id))
@@ -83,7 +93,7 @@ def process_call(call_id: int) -> None:
         from app.asr.backend import release_whisper
 
         release_whisper()
-        extract_call(call_id)
+        _log(call_id, "извлечение договорённостей: локальная LLM (qwen)")
     except Exception as exc:
         session.rollback()
         call = session.get(Call, call_id)
@@ -132,6 +142,7 @@ def extract_call(call_id: int) -> None:
             ).all()
         )
 
+        _log(call_id, f"LLM: реплик на входе {len(utterances)}")
         result = extract(utterances, call.started_at)
         verified = verify_agreements(utterances, result.agreements)
 
@@ -186,6 +197,7 @@ def extract_call(call_id: int) -> None:
         call.status = CallStatus.EXTRACTED
         call.error_message = None
         session.commit()
+        _log(call_id, f"готово: договорённостей {len(verified)}")
         report_ready(session, call_id)
     except Exception as exc:
         session.rollback()

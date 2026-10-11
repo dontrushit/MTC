@@ -24,13 +24,10 @@ kill_own "streamlit run app/ui/Home[.]py"
 kill_own "scripts/tg_bot[.]py"
 sleep 1
 # Если порт всё ещё занят — это не наш процесс: показываем его и выходим.
-if command -v lsof >/dev/null 2>&1; then
-  pid=$(lsof -ti :8000 2>/dev/null | head -1)
-  if [[ -n "${pid:-}" ]]; then
-    echo "Порт 8000 занят процессом PID=${pid} — это не наш запуск. Остановите его или смените порт." >&2
-    ps o pid,command -p "$pid" | tail -1 >&2 || true
-    exit 1
-  fi
+if ss -ltn 2>/dev/null | grep -q ":8000 "; then
+  echo "Порт 8000 занят — это не наш запуск. Остановите его или смените порт." >&2
+  ss -ltnp 2>/dev/null | grep ":8000 " >&2 || true
+  exit 1
 fi
 # Конец предочистки.
 
@@ -55,16 +52,35 @@ echo "UI:  http://127.0.0.1:8501"
 echo "Bot: включится при заданном TELEGRAM_BOT_TOKEN"
 
 export STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-"$PY" -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000 &
+LOGS="${1:-0}"
+if ! command -v kitty >/dev/null 2>&1 || [[ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]]; then
+  LOGS=0
+fi
+
+mkdir -p data/logs
+EVENT_LOG="data/logs/events.log"
+
+if [[ "$LOGS" == "1" ]]; then
+  echo "режим: kitty-терминалы с живыми логами"
+  kitty --title "MTC — события" -o initial_window_width=110c -o initial_window_height=34c -e bash -c "touch '$EVENT_LOG'; exec tail -n 250 -f '$EVENT_LOG'" &
+  pids+=($!)
+fi
+
+"$PY" -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000 2>&1 | tee -a "$EVENT_LOG" &
 pids+=($!)
-"$PY" -m streamlit run app/ui/Home.py \
-  --server.port 8501 \
-  --server.address 127.0.0.1 \
-  --server.headless true \
-  --browser.gatherUsageStats false &
-pids+=($!)
-"$PY" scripts/tg_bot.py &
-pids+=($!)
+
+UI=/usr/bin/cat; BOT=/usr/bin/cat
+if [[ "$LOGS" == "1" ]]; then
+  kitty --title "MTC — интерфейс" -o initial_window_width=90c -o initial_window_height=24c -e bash -c "$PY -m streamlit run app/ui/Home.py --server.port 8501 --server.address 127.0.0.1 --server.headless true --browser.gatherUsageStats false" &
+  pids+=($!)
+  kitty --title "MTC — Telegram" -o initial_window_width=90c -o initial_window_height=20c -e bash -c "$PY scripts/tg_bot.py" &
+  pids+=($!)
+else
+  "$PY" -m streamlit run app/ui/Home.py --server.port 8501 --server.address 127.0.0.1 --server.headless true --browser.gatherUsageStats false &
+  pids+=($!)
+  "$PY" scripts/tg_bot.py &
+  pids+=($!)
+fi
 
 while true; do
   for pid in "${pids[@]}"; do
