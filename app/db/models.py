@@ -205,6 +205,23 @@ class AuthSession(Base):
     )
 
 
+class TgLinkToken(Base):
+    """One-time token (hash only) that /start exchanges for a chat id."""
+
+    __tablename__ = "tg_link_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    manager_id: Mapped[int] = mapped_column(ForeignKey("managers.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+
 class AppSetting(Base):
     """A value saved from the settings screen. Overrides the environment when present."""
 

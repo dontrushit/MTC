@@ -82,6 +82,7 @@ from app.integrations.crm import payload_for, send_to_crm
 from app.integrations.ics import build_ics
 from app.rules import CATEGORIES, PRIORITIES, classify, load_rules, rules_from_payload
 from app.secure import unlock_to
+from app.telegram import create_link_token, link_url
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac"}
 MEDIA_TYPES = {
@@ -799,6 +800,17 @@ def update_rules(
         categories=list(CATEGORIES),
         priorities=list(PRIORITIES),
     )
+
+
+@app.post("/telegram/link")
+def telegram_link(
+    db: Session = Depends(get_db),
+    manager: Manager = Depends(require_manager),
+) -> dict:
+    """One-time bot link; the bot turns /start <token> into a chat id."""
+    raw = create_link_token(db, manager)
+    db.commit()
+    return {"url": link_url(raw), "expires_in": 900}
 
 
 @app.get("/audit", response_model=list[AuditOut])

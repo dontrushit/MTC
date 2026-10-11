@@ -183,6 +183,7 @@ def extract_call(call_id: int) -> None:
         call.status = CallStatus.EXTRACTED
         call.error_message = None
         session.commit()
+        report_ready(session, call_id)
     except Exception as exc:
         session.rollback()
         call = session.get(Call, call_id)
@@ -193,3 +194,14 @@ def extract_call(call_id: int) -> None:
         raise
     finally:
         session.close()
+
+
+def report_ready(session, call_id: int) -> None:
+    """Telegram notice after extraction. Never fails the pipeline itself."""
+    from app.telegram import notify_report_ready
+
+    try:
+        notify_report_ready(session, call_id)
+        session.commit()
+    except Exception:  # noqa: BLE001
+        pass

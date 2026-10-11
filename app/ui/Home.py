@@ -1,5 +1,6 @@
 """Call screen: record or upload, then show the report."""
 
+import os
 import time as time_module
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -78,6 +79,7 @@ def _live_recording() -> None:
 def main() -> None:
     page_heading("Звонок", "Нажмите микрофон в начале разговора и остановите в конце.")
     _live_recording()
+    _telegram_block()
     clients = api_get("/clients")
     _call_form(int(user["id"]), clients)
     _show_progress()
@@ -231,3 +233,24 @@ try:
     main()
 except ApiError as exc:
     st.error(exc.message)
+
+def _telegram_block() -> None:
+    """Link the employee's Telegram; without a bot token the button is hidden."""
+
+    from app.config import settings as app_settings
+
+    if not (app_settings.TELEGRAM_BOT_TOKEN.strip() or _env_has_token()):
+        return
+    if st.button("Подключить Telegram", key="tg-link"):
+        result = api_post("/telegram/link")
+        st.text_input(
+            "Ссылка действует 15 минут",
+            value=str((result or {}).get("url") or ""),
+            key="tg-link-url",
+        )
+        st.caption("Откройте ссылку и нажмите Start, чтобы получать уведомления.")
+
+
+def _env_has_token() -> bool:
+    return bool(str(os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
+

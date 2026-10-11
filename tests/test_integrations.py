@@ -426,3 +426,60 @@ def test_manual_consent_keeps_source(api: dict) -> None:
         row["action"] == "consent" and "задним числом" in (row.get("detail") or "")
         for row in audit
     )
+
+
+def test_telegram_link_token_lifecycle(api: dict) -> None:
+    client = api["client"]
+    result = client.post("/telegram/link")
+    assert result.status_code == 200
+    body = result.json()
+    assert body["expires_in"] == 900
+    assert "?start=" in body["url"]
+
+    from app.telegram import consume_token, link_url
+
+    raw = body["url"].split("start=")[1]
+    with api["Session"]() as session:
+        manager = consume_token(session, raw)
+        assert manager is not None and manager.is_supervisor
+        # второй раз тот же токен уже не работает
+        assert consume_token(session, raw) is None
+
+    assert "?start=" in link_url("r1")
+
+
+def test_notify_report_ready_offline_and_send(api: dict, monkeypatch) -> None:
+    import app.telegram as tg
+    from app.config import settings as app_settings
+
+    call_id, _agreement_id = _call_with_agreement(api)
+
+    monkeypatch.setattr(app_settings, "TELEGRAM_BOT_TOKEN", "")
+    with api["Session"]() as session:
+        tg.notify_report_ready(session, call_id)  # молча выключено
+        rows = api["client"].get("/audit").json()
+        assert not any(row["action"] == "notify" for row in rows)
+
+    monkeypatch.setattr(app_settings, "TELEGRAM_BOT_TOKEN", "demo-token")
+    monkeypatch.setattr(app_settings, "PUBLIC_BASE_URL", "http://localhost:8501")
+    sent: list = []
+    monkeypatch.setattr(tg, "_send", lambda cid, tok, text: sent.append((cid, tok, text)) or True)
+
+    from sqlalchemy import select
+
+    from app.db.models import Manager
+
+    with api["Session"]() as session:
+        manager = session.scalars(
+            select(Manager)
+        ).all()[0]
+        manager.telegram_chat_id = "4242"
+        session.commit()
+    with api["Session"]() as session:
+        tg.notify_report_ready(session, call_id)
+    assert sent and sent[0][0] == "4242" and "Договорённостей" in sent[0][2]
+    audit = api["client"].get("/audit").json()
+    assert any(
+        row["action"] == "notify" and "отправлено" in (row.get("detail") or "")
+        for row in audit
+    )
