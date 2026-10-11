@@ -1,0 +1,75 @@
+# ============================================================
+#  Демонстрационная локальная АТС (Asterisk) для проекта
+#  «ИИ-агент для фиксации договорённостей в телефонных разговорах»
+#
+#  Состав:
+#   * asterisk          — сама АТС (PJSIP, 2 экстеншена, автозапись)
+#   * recorder-notifier — наблюдатель за записями: стерео-склейка
+#                         и отправка вебхука ИИ-агенту после hangup
+#
+#  Запуск:  docker compose up -d
+# ============================================================
+
+services:
+
+  # ------------------------------------------------------------
+  # Ядро АТС
+  # ------------------------------------------------------------
+  asterisk:
+    image: andrius/asterisk:latest
+    container_name: demo-ats-asterisk
+    restart: unless-stopped
+
+    # Подгоняем UID/GID внутреннего пользователя asterisk
+    # под владельца каталогов на хосте (см. .env / README)
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+
+    # host-сеть: Asterisk сам биндит 5060/UDP и RTP на хосте,
+    # в SDP уходит реальный IP сервера (иначе клиенты шлют RTP
+    # на недоступный container-IP и звука нет)
+    network_mode: host
+
+    volumes:
+      # Полный минимальный набор конфигов (заменяет дефолтные сэмплы)
+      - ./asterisk/conf:/etc/asterisk
+      # Скрипт-триггер, вызываемый из hangup handler'а диалплана
+      - ./asterisk/scripts/call-meta.sh:/usr/local/bin/call-meta.sh:ro
+      # Общая папка записей: сюда пишет АТС, отсюда забирает ИИ-агент
+      - ./audio_records:/audio_records
+
+    healthcheck:
+      test: ["CMD-SHELL", "asterisk -rx 'core show uptime' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ------------------------------------------------------------
+  # Обработчик записей: ждёт .meta.json от hangup-триггера,
+  # склеивает стерео-wav и отправляет вебхук ИИ-агенту
+  # ------------------------------------------------------------
+  recorder-notifier:
+    image: python:3.12-slim
+    container_name: demo-ats-notifier
+    restart: unless-stopped
+    depends_on:
+      asterisk:
+        condition: service_healthy
+
+    command: ["python", "-u", "/app/notifier.py"]
+
+    environment:
+      # Адрес ИИ-агента на хосте (localhost хоста из контейнера)
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://host.docker.internal:8000/api/v1/process-audio}
+      STEREO_MERGE: "1"     # 1 = дополнительно собирать стерео-wav (L=звонящий, R=отвечающий)
+      POLL_INTERVAL: "2"    # период опроса папки, сек
+      RECORD_DIR: /audio_records
+
+    volumes:
+      - ./notifier/notifier.py:/app/notifier.py:ro
+      - ./audio_records:/audio_records
+
+    # Позволяет контейнеру обращаться к сервисам на самом хосте
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

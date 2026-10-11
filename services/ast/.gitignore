@@ -1,0 +1,4 @@
+audio_records/
+.env
+*.sent
+*.meta.done.json

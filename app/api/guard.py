@@ -9,7 +9,7 @@ from app.api.deps import get_db
 from app.auth import manager_from_token
 from app.db.models import Manager
 
-_PUBLIC = {"/auth/status", "/auth/login", "/auth/setup", "/CallEvent"}
+_PUBLIC = {"/auth/status", "/auth/login", "/auth/setup", "/CallEvent", "/api/v1/process-audio"}
 
 
 def require_manager(request: Request, db: Session = Depends(get_db)) -> Manager:

@@ -15,6 +15,7 @@ from app.api import worker
 from app.api.deps import get_db
 from app.api.guard import require_manager, require_supervisor
 from app.atc.access import sees_atc
+from app.atc.ast import ingest_ast_call, parse_metadata, pick_audio
 from app.atc.options import load_options, save_options
 from app.atc.phones import normalize_phone
 from app.atc.service import fetch_and_attach, ingest_event, store_recording
@@ -93,6 +94,50 @@ def require_atc(
 
 def _same(left: str, right: str) -> bool:
     return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+@router.post("/api/v1/process-audio")
+async def process_ast_audio(
+    request: Request,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_atc),
+) -> dict:
+    """Receive the ASTService webhook: one finished Asterisk/Linphone call."""
+    try:
+        form = await request.form()
+    except Exception:
+        return {"ok": True}
+    files: dict[str, object] = {}
+    for name in ("mixed", "caller_mono", "callee_mono", "stereo"):
+        value = form.get(name)
+        if value is not None and hasattr(value, "read"):
+            files[name] = value
+    available = {name: (b"pick" if name in files else None) for name in files}
+    audio_name, _ = pick_audio(available)
+    audio = b""
+    extension = ".wav"
+    chosen = files.get(audio_name)
+    if chosen is not None and hasattr(chosen, "read"):
+        audio = await chosen.read()
+        original = Path(chosen.filename or "").suffix.lower()
+        if original in _AUDIO_EXTENSIONS:
+            extension = original
+    result = ingest_ast_call(
+        db,
+        parse_metadata(form.get("metadata")),
+        audio_name,
+        audio,
+        extension,
+    )
+    db.commit()
+    if result.submit and result.call_id is not None:
+        worker.submit_call(result.call_id)
+    return {
+        "ok": True,
+        "call_id": result.call_id,
+        "note": result.note,
+        "audio": audio_name or "none",
+    }
 
 
 @router.post("/CallEvent")

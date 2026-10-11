@@ -335,3 +335,65 @@ def test_unknown_route_hidden_from_non_supervisors(api: dict, monkeypatch) -> No
     assert overview["total"] >= 1
     assert any(item["category"] == "КП" for item in overview["categories"])
     assert client.get("/audit").status_code == 200
+
+
+def test_astservice_webhook_starts_pipeline(api: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Asterisk/Linphone webhook creates a client, a call, and queues ASR."""
+    import io
+    import uuid
+
+    from app.api import worker
+
+    submitted: list[int] = []
+    monkeypatch.setattr(worker, "submit_call", lambda call_id: submitted.append(call_id))
+
+    audio = b"RIFF" + uuid.uuid4().bytes * 40
+    meta = (
+        "{\"call_id\": \"1731000000000000001\", \"caller\": \"11111\", "
+        "\"callee\": \"11119\", \"dial_status\": \"ANSWER\", "
+        "\"answered_seconds\": \"42\", \"finished_at\": 1760101353, "
+        "\"files\": {\"stereo\": \"/audio_records/x_stereo.wav\"}}"
+    )
+    client = api["client"]
+    response = client.post(
+        "/api/v1/process-audio",
+        files={
+            "metadata": (None, meta),
+            "stereo": ("20261010-142233_stereo.wav", io.BytesIO(audio), "audio/wav"),
+            "mixed": ("20261010-142233_mix.wav", io.BytesIO(b"RIFFmix"), "audio/wav"),
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["audio"] == "stereo"
+    assert submitted == [data["call_id"]]
+
+    detail = client.get(f"/calls/{data['call_id']}").json()
+    assert detail["channels"] == 2
+    assert detail["duration_sec"] == 42
+    card = client.get(f"/clients/{detail['client_id']}").json()
+    assert card["name"] == "Неизвестный"
+    assert card["phone"] == "11119"
+
+    from pathlib import Path
+
+    from app import secure
+
+    path = Path(detail["audio_path"])
+    assert path.is_file()
+    assert secure.is_encrypted(path)
+
+    audit = client.get("/audit").json()
+    assert any(row["action"] == "open_call" for row in audit)
+
+    # Повторный вебхук того же call_id не заводит второй звонок
+    again = client.post(
+        "/api/v1/process-audio",
+        files={
+            "metadata": (None, meta),
+            "stereo": ("20261010-142233_stereo.wav", io.BytesIO(audio), "audio/wav"),
+        },
+    )
+    assert again.json()["call_id"] == data["call_id"]
+    assert submitted == [data["call_id"]]
