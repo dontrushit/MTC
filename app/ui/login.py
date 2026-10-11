@@ -70,10 +70,29 @@ def _screen() -> None:
     except ApiError as exc:
         st.error(exc.message)
         return
+    _consent_notice()
     if status.get("needs_setup"):
         _setup(status.get("managers") or [])
         return
     _login(status.get("managers") or [])
+
+
+def _consent_notice() -> None:
+    """First visit: the person agrees to have their calls processed here."""
+    if st.session_state.get("service_consent_ok"):
+        return
+    page_heading("Вход")
+    ok = st.checkbox(
+        "Записи остаются на этом компьютере и обрабатываются сервисом для "
+        "фиксации договорённостей. Согласен(на).",
+        value=False,
+        key="service_consent",
+    )
+    if st.button("Продолжить", key="service_consent_ok"):
+        st.session_state["service_consent_ok"] = True
+        st.rerun()
+    if not ok:
+        st.stop()
 
 
 def _setup(managers: list[dict]) -> None:
