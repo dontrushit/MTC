@@ -484,3 +484,18 @@ def test_notify_report_ready_offline_and_send(api: dict, monkeypatch) -> None:
         row["action"] == "notify" and "отправлено" in (row.get("detail") or "")
         for row in audit
     )
+
+
+def test_tg_bot_is_silent_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The standalone bot exits quietly when TELEGRAM_BOT_TOKEN is empty."""
+    import importlib.util
+
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "TELEGRAM_BOT_TOKEN", "")
+    spec = importlib.util.spec_from_file_location(
+        "tg_bot", Path(__file__).parent.parent / "scripts" / "tg_bot.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.main() == 0

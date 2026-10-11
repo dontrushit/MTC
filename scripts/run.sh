@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the API (8000) and Streamlit (8501). Ctrl+C stops both.
+# Start the API (8000), Streamlit (8501), and the Telegram bot. Ctrl+C stops all.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,6 +28,7 @@ trap cleanup INT TERM EXIT
 
 echo "API: http://127.0.0.1:8000"
 echo "UI:  http://127.0.0.1:8501"
+echo "Bot: включится при заданном TELEGRAM_BOT_TOKEN"
 
 export STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 "$PY" -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000 &
@@ -37,6 +38,8 @@ pids+=($!)
   --server.address 127.0.0.1 \
   --server.headless true \
   --browser.gatherUsageStats false &
+pids+=($!)
+"$PY" scripts/tg_bot.py &
 pids+=($!)
 
 while true; do
