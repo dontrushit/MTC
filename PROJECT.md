@@ -102,6 +102,8 @@ models/              # локальные веса whisper (в .gitignore)
 
 ## Быстрый старт
 
+Проект работает на macOS и Linux: ASR сами (`app/asr/backend.py`) — mlx-whisper на Mac, faster-whisper на Linux; запускается `scripts/setup.sh` → `scripts/run` (или `scripts/run.sh`).
+
 ```bash
 # Всё окружение одной командой (macOS/Linux; uv, если установлен, иначе pip):
 scripts/setup.sh
@@ -198,6 +200,19 @@ Streamlit ходит только в API (`httpx`, без прямого дос�
 ## Без действий пользователя
 
 `/CallEvent` принимает события АТС: после завершения разговора запись скачивается по шаблону URL (`ATC_RECORDING_URL`, экран «Настройка АТС») либо приходит файлом `POST /atc/calls/{CallID}/recording`, после чего пайплайн ставится в очередь автоматически. Менеджер только открывает готовую карточку. Это «обработка сразу после разговора», не live-ASR в эфире.
+
+## Телефон через Linphone (services/ast)
+
+Собственная АТС на Asterisk в Docker (`services/ast/`, деплой на отдельном сервере
+`100.91.32.58`, клиенты — Linphone/Zoiper через Tailscale):
+
+- звонок `11111` ↔ `11119`, MixMonitor пишет `mix`/`caller`/`callee`, hangup-хендler пишет `.meta.json`;
+- `recorder-notifier` на сервере склеивает стерео (L=звонящий, R=отвечающий) и отправляет
+  multipart-вебхук на `WEBHOOK_URL` — `POST /api/v1/process-audio` этого приложения;
+- вебхук (`app/atc/ast.py`): caller-экстеншен → сотрудник по короткому номеру, callee → клиент,
+  файл шифруется и уходит в очередь пайплайна без клика;
+- связь привязывается командой `./services/ast/attach.sh` (обновляет `WEBHOOK_URL` на сервере по SSH);
+- ручная запись из интерфейса (микрофон/файл) остаётся как была.
 
 ## Статус
 
