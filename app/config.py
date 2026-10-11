@@ -12,6 +12,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    APP_NAME: str = "Договорённости по звонкам"
     DATA_DIR: Path = Path("data")
     DB_URL: str = "sqlite:///data/mtc.db"
     OLLAMA_URL: str = "http://localhost:11434"

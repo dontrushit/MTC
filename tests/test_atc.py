@@ -109,7 +109,7 @@ def test_call_waits_until_recording_is_attached(api: dict) -> None:
         assert call is not None
         assert Path(call.audio_path).is_file()
         customer = call.client
-        assert customer.name == "Неизвестный"
+        assert customer.name == "Неизвестный контакт"
         assert customer.phone == "+79161234567"
 
 
@@ -257,7 +257,7 @@ def test_history_shows_a_live_call_and_a_ready_report(api: dict) -> None:
     matched = [item for item in again if item["phone"] == "+79160001122"]
     assert len(matched) == 1
     assert matched[0]["status"] == "preparing"
-    assert matched[0]["client_name"] == "Неизвестный"
+    assert matched[0]["client_name"] == "Неизвестный контакт"
     assert matched[0]["call_id"] is not None
 
 

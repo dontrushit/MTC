@@ -18,13 +18,13 @@ from app.ui.theme import (
     show_section,
 )
 
-configure("Клиенты")
+configure("Контакты")
 
 _SORTS = {"Имя": "name", "Фамилия": "last_name", "Дата звонка": "call"}
 
 
 def main() -> None:
-    page_heading("Клиенты")
+    page_heading("Контакты")
     _add_client()
     search, order = st.columns([2, 1])
     if st.session_state.pop("clients_clear_search", False):
@@ -47,7 +47,7 @@ def main() -> None:
     elif st.session_state.get("client_pick") not in options:
         st.session_state.pop("client_pick", None)
     client_id = st.radio(
-        "Клиент",
+        "Контакт",
         options=options,
         index=None,
         format_func=lambda item_id: _label(clients, item_id),
@@ -73,7 +73,7 @@ def main() -> None:
 
 
 def _add_client() -> None:
-    with st.expander("Новый клиент"):
+    with st.expander("Новый контакт"):
         if st.session_state.pop("clients_clear_form", False):
             st.session_state["clients_new_name"] = ""
             st.session_state["clients_new_last"] = ""
@@ -89,7 +89,7 @@ def _add_client() -> None:
             key="clients_new_contract",
             placeholder="Необязательно",
         )
-        if st.button("Добавить клиента", type="primary", key="clients_add"):
+        if st.button("Добавить контакт", type="primary", key="clients_add"):
             if not name.strip() or not last_name.strip() or not phone:
                 st.warning("Нужны имя, фамилия и номер: +375, код и 7 цифр.")
                 return
@@ -120,7 +120,7 @@ def _render_call(call: dict) -> None:
     else:
         show_call_report(detail, detail["agreements"])
         if call.get("consent"):
-            st.caption("Клиент предупреждён о записи.")
+            st.caption("Собеседник предупреждён о записи.")
         elif st.button("Согласие на запись получено", key=f"consent-{call['id']}"):
             api_patch(f"/calls/{call['id']}/consent", {"consent": True})
             st.rerun()
@@ -191,7 +191,7 @@ def _edit_report(detail: dict) -> None:
         who.selectbox(
             "Кто",
             ["manager", "client"],
-            format_func=lambda item: "Менеджер" if item == "manager" else "Клиент",
+            format_func=lambda item: "Пользователь" if item == "manager" else "Контакт",
             key=f"rep-who-{call_id}-{index}",
         )
         due.text_input("Срок", key=f"rep-due-{call_id}-{index}", placeholder="2026-10-15")
@@ -320,7 +320,7 @@ def _client_actions(card: dict) -> None:
         st.session_state.pop("confirm_delete", None)
         st.rerun()
     if st.session_state.get("confirm_delete") == card["id"]:
-        st.warning("Удалятся клиент и все его звонки.")
+        st.warning("Удалятся контакт и все его звонки.")
         if remove.button("Удалить навсегда", key=f"confirm-{card['id']}"):
             api_delete(f"/clients/{card['id']}")
             st.session_state.pop("confirm_delete", None)

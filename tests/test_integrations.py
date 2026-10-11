@@ -373,7 +373,7 @@ def test_astservice_webhook_starts_pipeline(api: dict, monkeypatch: pytest.Monke
     assert detail["channels"] == 2
     assert detail["duration_sec"] == 42
     card = client.get(f"/clients/{detail['client_id']}").json()
-    assert card["name"] == "Неизвестный"
+    assert card["name"] == "Неизвестный контакт"
     assert card["phone"] == "11119"
 
     from pathlib import Path

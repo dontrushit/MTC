@@ -17,26 +17,26 @@ _CSS = Path(__file__).with_name("mts.css")
 _NAV = (
     ("", "Звонок", False),
     ("История", "История", False),
-    ("Клиенты", "Клиенты", False),
-    ("Руководитель", "Руководитель", True),
-    ("Настройка", "Настройка АТС", True),
+    ("Контакты", "Контакты", False),
+    ("Команда", "Команда", True),
+    ("Телефония", "Телефония", True),
     ("Журнал", "Журнал", True),
 )
 
 _QUICK = (
     ("Загрузка", "Загрузить запись", "Аудио — расшифровка начнётся сама", "doc"),
-    ("Клиенты", "Карточка клиента", "Имя, компания и открытые обязательства", "person"),
-    ("Клиенты", "История звонков", "Диалог, запись и цитаты", "sim"),
-    ("Руководитель", "Контроль сроков", "Просроченные видны руководителю", "check"),
+    ("Контакты", "Карточка контакта", "Имя, компания и открытые обязательства", "person"),
+    ("Контакты", "История звонков", "Диалог, запись и цитаты", "sim"),
+    ("Команда", "Контроль сроков", "Просроченные видны администратору", "check"),
 )
 
 _ICONS = (
     ("Загрузка", "Загрузка", "doc", False),
-    ("Клиенты", "Клиенты", "person", False),
+    ("Контакты", "Контакты", "person", False),
     ("Договорённости", "Договорённости", "check", True),
     ("Клиенты", "Диалог", "chat", False),
     ("Договорённости", "Сроки", "clock", False),
-    ("Руководитель", "Руководитель", "chart", False),
+    ("Команда", "Команда", "chart", False),
 )
 
 _AGREEMENT_TONE = {
@@ -51,7 +51,7 @@ _SEARCH = "<span class='mts-glass' aria-hidden='true'></span>"
 _BARS = "<span class='mts-bars' aria-hidden='true'><i></i><i></i><i></i></span>"
 
 _STEPS = (
-    ("01", "Менеджер и клиент", "Выберите карточку или создайте новую"),
+    ("01", "Сотрудник и контакт", "Выберите карточку или создайте новую"),
     ("02", "Кнопка записи", "Начните в момент звонка и остановите в конце"),
     ("03", "Расшифровка", "Статус обновляется, пока идёт обработка"),
     ("04", "Отчёт", "Диалог, срок, ответственный и цитата"),
@@ -69,10 +69,11 @@ _ART = (
 
 def configure(title: str, *, with_chrome: bool = True) -> dict:
     """Draw the page and return the signed-in employee. Stops on the login screen."""
+    from app.config import settings as app_settings
     from app.ui.login import ensure_user
 
     st.set_page_config(
-        page_title=title,
+        page_title=f"{app_settings.APP_NAME} — {title}",
         page_icon="🔴",
         layout="wide",
         initial_sidebar_state="collapsed",
@@ -321,7 +322,7 @@ def show_dialog(utterances: list[dict]) -> None:
     chunks: list[str] = []
     for utterance in utterances:
         is_manager = utterance["speaker"] == "manager"
-        who = "Менеджер" if is_manager else "Клиент"
+        who = "Пользователь" if is_manager else "Контакт"
         kind = "manager" if is_manager else "client"
         stamp = f"{format_clock(utterance['start_sec'])}–{format_clock(utterance['end_sec'])}"
         chunks.append(

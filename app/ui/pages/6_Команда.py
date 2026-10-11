@@ -6,7 +6,7 @@ from app.ui.api_client import ApiError, api_get
 from app.ui.labels import agreement_status_ru
 from app.ui.theme import configure, page_heading, show_metrics, show_section
 
-user = configure("Руководитель")
+user = configure("Команда")
 
 
 def _overdue_rows(rows: list[dict], clients: dict[int, str]) -> list[dict]:
@@ -16,9 +16,9 @@ def _overdue_rows(rows: list[dict], clients: dict[int, str]) -> list[dict]:
         due = row.get("due_date") or row.get("due_text") or "срок не обговорён"
         table.append(
             {
-                "Клиент": client_name,
+                "Контакт": client_name,
                 "Что сделать": row.get("action") or "",
-                "Кто": "менеджер" if row.get("responsible") == "manager" else "клиент",
+                "Кто": "пользователь" if row.get("responsible") == "manager" else "контакт",
                 "Срок": str(due)[:10],
                 "Статус": agreement_status_ru(str(row.get("status") or "")),
             }
@@ -42,7 +42,7 @@ def _client_names(rows: list[dict]) -> dict[int, str]:
 
 
 try:
-    page_heading("Руководитель", "Что происходит с договорённостями команды.")
+    page_heading("Команда", "Что происходит с договорённостями команды.")
     if not user.get("is_supervisor"):
         st.info("Дашборд видит ответственный сотрудник.")
         st.stop()
@@ -76,13 +76,13 @@ try:
     else:
         st.caption("Договорённостей ещё нет.")
 
-    show_section("Команда")
+    show_section("Сводка по пользователям")
     stats = list(api_get("/stats/managers"))
     if stats:
         st.dataframe(
             [
                 {
-                    "Сотрудник": item.get("name") or "",
+                    "Пользователь": item.get("name") or "",
                     "Открыто": item.get("open") or 0,
                     "Просрочено": item.get("overdue") or 0,
                     "Выполнено": item.get("done") or 0,

@@ -5,7 +5,7 @@ import streamlit as st
 from app.ui.api_client import ApiError, api_get, api_post, api_put
 from app.ui.theme import configure, page_heading
 
-user = configure("Настройка АТС")
+user = configure("Телефония")
 
 _PRIORIY_RU = {"high": "высокий", "normal": "обычный", "low": "низкий"}
 _CATEGORIES = ["КП", "встреча", "оплата"]
@@ -101,7 +101,7 @@ def _default_rules() -> list[dict]:
 
 
 def _form(data: dict) -> None:
-    st.text_input("Адрес для кабинета МТС", value=data["event_url"], disabled=True)
+    st.text_input("Адрес для кабинета оператора", value=data["event_url"], disabled=True)
     with st.form("atc_settings"):
         recording_url = st.text_input(
             "Ссылка на запись",
@@ -186,7 +186,7 @@ try:
         page_heading("Настройка")
         st.info("Настройки меняет ответственный сотрудник.")
         st.stop()
-    page_heading("Настройка АТС")
+    page_heading("Телефония")
     if st.session_state.pop("atc_saved", None):
         st.success("Сохранено.")
     _form(api_get("/atc/settings"))

@@ -266,7 +266,7 @@ def _remove_call(db: Session, call: Call) -> None:
 def update_client(client_id: int, payload: ClientIn, db: Session = Depends(get_db)) -> Client:
     client = db.get(Client, client_id)
     if client is None:
-        raise HTTPException(status_code=404, detail="Клиент не найден")
+        raise HTTPException(status_code=404, detail="Контакт не найден")
     name, last_name, phone, contract_number = _client_names(payload)
     client.name = name
     client.last_name = last_name
@@ -281,7 +281,7 @@ def update_client(client_id: int, payload: ClientIn, db: Session = Depends(get_d
 def delete_client(client_id: int, db: Session = Depends(get_db)) -> Response:
     client = db.get(Client, client_id)
     if client is None:
-        raise HTTPException(status_code=404, detail="Клиент не найден")
+        raise HTTPException(status_code=404, detail="Контакт не найден")
     calls = list(client.calls)
     saved = [(call.audio_path, call.id) for call in calls]
     for call in calls:
@@ -298,7 +298,7 @@ def get_client(client_id: int, db: Session = Depends(get_db)) -> ClientDetail:
     mark_overdue(db, _today())
     client = db.get(Client, client_id)
     if client is None:
-        raise HTTPException(status_code=404, detail="Клиент не найден")
+        raise HTTPException(status_code=404, detail="Контакт не найден")
     calls = list(
         db.scalars(
             select(Call)
@@ -326,9 +326,9 @@ def create_call(
     manager: Manager = Depends(require_manager),
 ) -> Call:
     if db.get(Client, client_id) is None:
-        raise HTTPException(status_code=404, detail="Клиент не найден")
+        raise HTTPException(status_code=404, detail="Контакт не найден")
     if db.get(Manager, manager_id) is None:
-        raise HTTPException(status_code=404, detail="Менеджер не найден")
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
 
     original = Path(file.filename or "").name
     ext = Path(original).suffix.lower()
@@ -358,7 +358,7 @@ def create_call(
         action="consent" if consent else "upload_call",
         entity="call",
         entity_id=call.id,
-        detail="клиент предупреждён о записи" if consent else "загрузка записи",
+        detail="собеседник предупреждён о записи" if consent else "загрузка записи",
     )
 
     raw_dir = settings.DATA_DIR / "raw"
@@ -579,7 +579,7 @@ def patch_consent(
         action="consent",
         entity="call",
         entity_id=call.id,
-        detail="клиент предупреждён о записи" if payload.consent else "снято",
+        detail="собеседник предупреждён о записи" if payload.consent else "снято",
     )
     db.commit()
     db.refresh(call)
@@ -691,7 +691,7 @@ def agreement_to_crm(
     if not url.strip():
         raise HTTPException(
             status_code=409,
-            detail="Сначала введите ссылку CRM на экране «Настройка АТС»",
+            detail="Сначала введите ссылку CRM на экране «Телефония»",
         )
     client = db.get(Client, agreement.client_id)
     data = AgreementOut.model_validate(agreement).model_dump(mode="json")

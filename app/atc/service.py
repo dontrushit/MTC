@@ -28,7 +28,7 @@ STATISTICS = 26
 TRANSFER_OK = "1280"
 FINISHED_EVENTS = {REC_STOP, END_CALL, STATISTICS}
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac"}
-UNKNOWN_CLIENT = "Неизвестный"
+UNKNOWN_CLIENT = "Неизвестный контакт"
 
 
 @dataclass
@@ -132,8 +132,8 @@ def queue_recording(session: Session, row: AtcCall) -> tuple[int | None, bool]:
             row.status = AtcCallStatus.WAITING_RECORDING
             if not load_options(session).recording_url:
                 row.note = (
-                    "Нет файла записи. Когда МТС даст ссылку, "
-                    "впишите её на экране «Настройка АТС»."
+                    "Нет файла записи. Когда оператор даст ссылку, "
+                    "впишите её на экране «Телефония»."
                 )
         return None, False
     if not row.caller_phone:
@@ -144,7 +144,7 @@ def queue_recording(session: Session, row: AtcCall) -> tuple[int | None, bool]:
     manager = resolve_manager(session, row.agent_phone)
     if manager is None:
         row.status = AtcCallStatus.WAITING_RECORDING
-        row.note = "Нет менеджера. Добавьте менеджера на экране «Настройка АТС»."
+        row.note = "Нет сотрудника. Добавьте его на экране «Телефония»."
         return None, False
 
     client = find_client(session, row.caller_phone)

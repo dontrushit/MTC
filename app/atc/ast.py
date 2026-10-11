@@ -23,7 +23,7 @@ from app.atc.service import find_client, resolve_manager, suffix_for
 from app.config import settings
 from app.db.models import AtcCall, AtcCallStatus, Call, CallStatus, Client
 
-UNKNOWN_CLIENT = "Неизвестный"
+UNKNOWN_CLIENT = "Неизвестный контакт"
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac"}
 
 
@@ -90,7 +90,7 @@ def ingest_ast_call(
     manager = resolve_manager(session, caller)
     if manager is None:
         row.status = AtcCallStatus.WAITING_RECORDING
-        row.note = "Нет менеджера. Добавьте сотрудника на экране «Настройка АТС»."
+        row.note = "Нет сотрудника. Добавьте его на экране «Телефония»."
         session.flush()
         return AstResult(external_id=external_id, note=row.note)
 

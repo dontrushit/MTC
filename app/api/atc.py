@@ -179,11 +179,11 @@ def update_atc_settings(
     _: Manager = Depends(require_supervisor),
 ) -> AtcSettingsOut:
     if payload.manager_id is not None and db.get(Manager, payload.manager_id) is None:
-        raise HTTPException(status_code=400, detail="Менеджер не найден")
+        raise HTTPException(status_code=400, detail="Пользователь не найден")
     for item in payload.managers:
         manager = db.get(Manager, item.id)
         if manager is None:
-            raise HTTPException(status_code=404, detail="Менеджер не найден")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
         name = item.name.strip()
         if name:
             manager.name = name

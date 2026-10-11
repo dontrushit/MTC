@@ -20,8 +20,8 @@ AGREEMENT_STATUS_RU = {
 }
 
 RESPONSIBLE_RU = {
-    "manager": "менеджер",
-    "client": "клиент",
+    "manager": "пользователь",
+    "client": "контакт",
 }
 
 

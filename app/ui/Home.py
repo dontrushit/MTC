@@ -84,8 +84,9 @@ def main() -> None:
 
 def _call_form(manager_id: int, clients: list[dict]) -> None:
     client_id = _client_fields(clients)
-    st.caption("Клиент предупреждён, что разговор записывается? Согласие сохраняется в карточке.")
-    consent = st.checkbox("Клиент предупреждён о записи", value=False)
+    st.caption("Собеседник предупреждён, что разговор записывается?")
+    st.caption("Согласие сохраняется в карточке звонка.")
+    consent = st.checkbox("Собеседник предупреждён о записи", value=False)
     recorded = st.audio_input("Запись звонка", sample_rate=16000)
     if recorded is not None and recorded.getvalue():
         payload = recorded.getvalue()
@@ -147,7 +148,7 @@ def _submit_audio(
         st.warning("Запись пустая.")
         return
     if client_id is None:
-        st.warning("Выберите клиента или добавьте нового.")
+        st.warning("Выберите контакт или добавьте нового.")
         return
     result = api_post(
         "/calls",
@@ -173,14 +174,14 @@ def _client_fields(clients: list[dict]) -> int | None:
         if chosen in ids:
             st.session_state["call_client"] = chosen
         client_id = st.selectbox(
-            "Клиент",
+            "Контакт",
             options=ids,
             format_func=lambda item_id: _client_label(clients, item_id),
             key="call_client",
         )
     else:
-        st.caption("Клиентов пока нет — заполните нового.")
-    with st.expander("Новый клиент", expanded=not clients):
+        st.caption("Контактов пока нет — заполните нового.")
+    with st.expander("Новый контакт", expanded=not clients):
         if st.session_state.pop("clear_new_client", False):
             st.session_state["new_client_name"] = ""
             st.session_state["new_client_last"] = ""
@@ -196,7 +197,7 @@ def _client_fields(clients: list[dict]) -> int | None:
             key="new_client_contract",
             placeholder="Необязательно",
         )
-        if st.button("Добавить клиента", type="primary"):
+        if st.button("Добавить контакт", type="primary"):
             if not name.strip() or not last_name.strip() or not phone:
                 st.warning("Нужны имя, фамилия и номер: +375, код и 7 цифр.")
             else:
