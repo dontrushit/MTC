@@ -80,6 +80,9 @@ def process_call(call_id: int) -> None:
         call.status = CallStatus.TRANSCRIBED
         session.commit()
 
+        from app.asr.backend import release_whisper
+
+        release_whisper()
         extract_call(call_id)
     except Exception as exc:
         session.rollback()

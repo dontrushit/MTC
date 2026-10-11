@@ -36,7 +36,7 @@ def _chat_extract(client: ollama.Client, model: str, messages: list[dict[str, st
         model=model,
         messages=messages,
         format=ExtractionResult.model_json_schema(),
-        options={"temperature": 0, "num_ctx": 16384},
+        options={"temperature": 0, "num_ctx": settings.OLLAMA_NUM_CTX},
     )
     content = response.message.content
     if not content:

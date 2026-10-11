@@ -162,3 +162,16 @@ def _transcribe_faster_whisper(audio: Any) -> dict:
             }
         )
     return {"segments": raw_segments}
+
+
+def release_whisper() -> None:
+    """Drop the cached model so the LLM stage has room in RAM."""
+    global _FASTER_WHISPER_MODEL, _FASTER_WHISPER_KEY
+    _FASTER_WHISPER_MODEL = None
+    _FASTER_WHISPER_KEY = None
+    try:
+        import gc
+
+        gc.collect()
+    except Exception:
+        pass

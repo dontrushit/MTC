@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     OLLAMA_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:14b"
     OLLAMA_FALLBACK_MODEL: str = "qwen2.5:7b"
+    OLLAMA_NUM_CTX: int = 16384
     WHISPER_MODEL: str = "mlx-community/whisper-large-v3-turbo"
     WHISPER_BACKEND: str = "auto"
     WHISPER_DEVICE: str = "auto"
