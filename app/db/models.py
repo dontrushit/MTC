@@ -95,6 +95,12 @@ class Call(Base):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     consent: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="0")
+    consent_source: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, default=None
+    )
+    consent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     report_topic: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     report_summary: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     report_json: Mapped[str] = mapped_column(

@@ -5,10 +5,10 @@
 #  recorder-notifier и отправляет вебхук ИИ-агенту.
 #
 #  Использование:
-#    call-meta.sh <base> <caller> <callee> <uniqueid> <dialstatus> <answeredtime>
+#    call-meta.sh <base> <caller> <callee> <uniqueid> <dialstatus> <answeredtime> [notice played] [notice epoch]
 # ============================================================
 
-BASE="$1"; CALLER="$2"; CALLEE="$3"; CALL_ID="$4"; DIAL="$5"; ANSW="$6"
+BASE="$1"; CALLER="$2"; CALLEE="$3"; CALL_ID="$4"; DIAL="$5"; ANSW="$6"; NOTICE="$7"; NOTICE_AT="$8"
 
 # Метаданные нужны только для состоявшихся (отвеченных) звонков:
 # без моста MixMonitor не создаёт файлов.
@@ -22,6 +22,8 @@ cat > "${BASE}.meta.json" <<EOF
   "dial_status": "${DIAL}",
   "answered_seconds": "${ANSW}",
   "finished_at": $(date +%s),
+  "notice_played": ${NOTICE:-0},
+  "notice_at": ${NOTICE_AT:-0},
   "files": {
     "mixed": "${BASE}_mix.wav",
     "caller_mono": "${BASE}_caller.wav",

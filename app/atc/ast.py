@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app import secure
 from app.atc.phones import normalize_phone
 from app.atc.service import find_client, resolve_manager, suffix_for
+from app.audit import log as audit_log
 from app.config import settings
 from app.db.models import AtcCall, AtcCallStatus, Call, CallStatus, Client
 
@@ -101,6 +102,8 @@ def ingest_ast_call(
         session.flush()
 
     dest = _save_recording(external_id, audio, extension)
+    consent_at = _now()
+    notice = _truthy(meta.get("notice_played"))
     call = Call(
         client_id=client.id,
         manager_id=manager.id,
@@ -109,6 +112,9 @@ def ingest_ast_call(
         duration_sec=answered or 0,
         channels=2 if audio_name == "stereo" else 1,
         status=CallStatus.NEW,
+        consent=notice,
+        consent_source="ivr_asterisk" if notice else None,
+        consent_at=consent_at if notice else None,
     )
     session.add(call)
     session.flush()
@@ -116,8 +122,25 @@ def ingest_ast_call(
     row.call_id = call.id
     row.status = AtcCallStatus.QUEUED
     row.note = ""
+    if notice:
+        audit_log(
+            session,
+            manager=None,
+            action="consent",
+            entity="call",
+            entity_id=call.id,
+            detail="автоматическое уведомление АТС (ivr_asterisk)",
+        )
     session.flush()
     return AstResult(external_id=external_id, call_id=call.id, submit=True)
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _save_recording(external_id: str, audio: bytes, extension: str) -> Path:

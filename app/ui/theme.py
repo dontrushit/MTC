@@ -184,6 +184,25 @@ def agreement_actions(agreement: dict) -> None:
                 st.warning(result.get("message") or "CRM не ответила.")
 
 
+def show_consent(call: dict) -> None:
+    """Badge in the call card: how the recording consent was obtained."""
+    source = str(call.get("consent_source") or "")
+    if call.get("consent"):
+        label = (
+            "Звонящий уведомлён автоматически"
+            if source.startswith("ivr")
+            else "Подтверждено вручную"
+        )
+        tone = "green"
+    else:
+        label = "Согласие не подтверждено"
+        tone = "muted"
+    st.html(
+        f"<div class='mts-consent mts-pill-{tone}'>"
+        f"<span class='mts-pill mts-pill-{tone}'>{html.escape(label)}</span></div>"
+    )
+
+
 def show_call_report(call: dict, agreements: list[dict]) -> None:
     """Short structured report: topic, one line of context, agreements, open point."""
     report = _report_dict(call)

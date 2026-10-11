@@ -14,6 +14,17 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Договорённости по звонкам"
     DATA_DIR: Path = Path("data")
+    # Текст уведомления абонентов о записи (озвучивается АТС перед разговором).
+    IVR_NOTICE_TEXT: str = (
+        "Внимание! Разговор записывается и автоматически обрабатывается "
+        "для фиксации договорённостей."
+    )
+    # Путь к модели piper (fallback синтеза уведомления без espeak-ng).
+    IVR_PIPER_MODEL: str = ""
+    # Telegram-уведомления «отчёт готов». Без токена функция выключена.
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_BOT_USERNAME: str = ""
+    PUBLIC_BASE_URL: str = ""
     DB_URL: str = "sqlite:///data/mtc.db"
     OLLAMA_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:14b"

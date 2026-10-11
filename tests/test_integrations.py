@@ -352,7 +352,7 @@ def test_astservice_webhook_starts_pipeline(api: dict, monkeypatch: pytest.Monke
         "{\"call_id\": \"1731000000000000001\", \"caller\": \"11111\", "
         "\"callee\": \"11119\", \"dial_status\": \"ANSWER\", "
         "\"answered_seconds\": \"42\", \"finished_at\": 1760101353, "
-        "\"files\": {\"stereo\": \"/audio_records/x_stereo.wav\"}}"
+        "\"notice_played\": true, \"files\": {\"stereo\": \"/audio_records/x_stereo.wav\"}}"
     )
     client = api["client"]
     response = client.post(
@@ -383,6 +383,8 @@ def test_astservice_webhook_starts_pipeline(api: dict, monkeypatch: pytest.Monke
     path = Path(detail["audio_path"])
     assert path.is_file()
     assert secure.is_encrypted(path)
+    assert detail["consent"] is True
+    assert detail["consent_source"] == "ivr_asterisk"
 
     audit = client.get("/audit").json()
     assert any(row["action"] == "open_call" for row in audit)
@@ -397,3 +399,30 @@ def test_astservice_webhook_starts_pipeline(api: dict, monkeypatch: pytest.Monke
     )
     assert again.json()["call_id"] == data["call_id"]
     assert submitted == [data["call_id"]]
+
+
+def test_manual_consent_keeps_source(api: dict) -> None:
+    """Manual checkbox at upload → manual; retro patch → manual_retro."""
+    customer = _customer(api)
+    body = api["client"].post(
+        "/calls",
+        data={
+            "client_id": str(customer),
+            "manager_id": str(_first_manager(api)),
+            "started_at": "2026-10-09T11:00:00",
+            "consent": "true",
+        },
+        files={"file": ("talk.wav", b"RIFFdemo", "audio/wav")},
+    ).json()
+    assert body["consent_source"] == "manual"
+    assert body["consent_at"]
+
+    patched = api["client"].patch(
+        f"/calls/{body['id']}/consent", json={"consent": True}
+    ).json()
+    assert patched["consent_source"] == "manual_retro"
+    audit = api["client"].get("/audit").json()
+    assert any(
+        row["action"] == "consent" and "задним числом" in (row.get("detail") or "")
+        for row in audit
+    )

@@ -340,6 +340,7 @@ def create_call(
         raise HTTPException(status_code=400, detail="Пустой файл")
 
     when = _aware(started_at) if started_at is not None else datetime.now(ZoneInfo(settings.TZ))
+    consent_at = datetime.now(UTC) if consent else None
     call = Call(
         client_id=client_id,
         manager_id=manager_id,
@@ -349,6 +350,8 @@ def create_call(
         channels=0,
         status=CallStatus.NEW,
         consent=consent,
+        consent_source="manual" if consent else None,
+        consent_at=consent_at,
     )
     db.add(call)
     db.flush()
@@ -358,7 +361,9 @@ def create_call(
         action="consent" if consent else "upload_call",
         entity="call",
         entity_id=call.id,
-        detail="собеседник предупреждён о записи" if consent else "загрузка записи",
+        detail="собеседник предупреждён о записи (вручную)"
+        if consent
+        else "загрузка записи",
     )
 
     raw_dir = settings.DATA_DIR / "raw"
@@ -568,18 +573,26 @@ def patch_consent(
     db: Session = Depends(get_db),
     manager: Manager = Depends(require_manager),
 ) -> Call:
-    """Mark that the client was told the call was recorded."""
+    """Mark that the client was told the call was recorded. Manual means retro."""
     call = db.get(Call, call_id)
     if call is None:
         raise HTTPException(status_code=404, detail="Звонок не найден")
     call.consent = payload.consent
+    if payload.consent:
+        call.consent_source = "manual_retro"
+        call.consent_at = datetime.now(UTC)
+    else:
+        call.consent_source = None
+        call.consent_at = None
     audit_log(
         db,
         manager=manager,
         action="consent",
         entity="call",
         entity_id=call.id,
-        detail="собеседник предупреждён о записи" if payload.consent else "снято",
+        detail="собеседник предупреждён о записи (задним числом)"
+        if payload.consent
+        else "снято",
     )
     db.commit()
     db.refresh(call)

@@ -15,6 +15,7 @@ from app.ui.theme import (
     show_call_extras,
     show_call_report,
     show_client,
+    show_consent,
     show_section,
 )
 
@@ -119,11 +120,11 @@ def _render_call(call: dict) -> None:
         st.caption("Отчёт ещё готовится.")
     else:
         show_call_report(detail, detail["agreements"])
-        if call.get("consent"):
-            st.caption("Собеседник предупреждён о записи.")
-        elif st.button("Согласие на запись получено", key=f"consent-{call['id']}"):
-            api_patch(f"/calls/{call['id']}/consent", {"consent": True})
-            st.rerun()
+        show_consent(call)
+        if not call.get("consent"):
+            if st.button("Согласие на запись получено", key=f"consent-{call['id']}"):
+                api_patch(f"/calls/{call['id']}/consent", {"consent": True})
+                st.rerun()
         if st.button("Изменить отчёт", key=f"edit-report-{call['id']}"):
             st.session_state["edit_report"] = call["id"]
             _reset_report_form(detail)

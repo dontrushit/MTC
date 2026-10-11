@@ -67,6 +67,8 @@ class CallOut(OrmOut):
     status: CallStatus
     error_message: str | None
     consent: bool = False
+    consent_source: str | None = None
+    consent_at: datetime | None = None
     report_topic: str = ""
     report_summary: str = ""
     report_json: str = "{}"

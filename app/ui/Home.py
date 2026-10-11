@@ -16,6 +16,7 @@ from app.ui.theme import (
     page_heading,
     show_call_extras,
     show_call_report,
+    show_consent,
     show_live_call,
     show_section,
 )
@@ -49,6 +50,7 @@ def _show_report() -> None:
     show_section("Отчёт")
     st.caption(format_dt(call.get("started_at")))
     show_call_report(call, call["agreements"])
+    show_consent(call)
     show_call_extras(call)
     for agreement in call["agreements"]:
         agreement_actions(agreement)

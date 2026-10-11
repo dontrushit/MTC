@@ -40,6 +40,7 @@ def init_db() -> None:
     _ensure_manager_password()
     _ensure_atc_recording_on()
     _ensure_call_consent()
+    _ensure_call_consent_extra()
     _ensure_agreement_extra()
 
 
@@ -154,6 +155,21 @@ def _ensure_call_consent() -> None:
             conn.execute(
                 text("ALTER TABLE calls ADD COLUMN consent BOOLEAN NOT NULL DEFAULT 0")
             )
+
+
+def _ensure_call_consent_extra() -> None:
+    """How consent was obtained (ivr_asterisk / ivr_mts / manual / manual_retro)."""
+    if not settings.DB_URL.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(calls)")).fetchall()
+        if not rows:
+            return
+        columns = {row[1] for row in rows}
+        if "consent_source" not in columns:
+            conn.execute(text("ALTER TABLE calls ADD COLUMN consent_source VARCHAR(32)"))
+        if "consent_at" not in columns:
+            conn.execute(text("ALTER TABLE calls ADD COLUMN consent_at TIMESTAMP"))
 
 
 def _ensure_agreement_extra() -> None:

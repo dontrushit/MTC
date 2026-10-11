@@ -36,6 +36,8 @@ services:
       - ./asterisk/conf:/etc/asterisk
       # Скрипт-триггер, вызываемый из hangup handler'а диалплана
       - ./asterisk/scripts/call-meta.sh:/usr/local/bin/call-meta.sh:ro
+      # Уведомление о записи (моно 8 кГц), пересоздаёт scripts/make_notice.py
+      - ./sounds/custom:/var/lib/asterisk/sounds/custom:ro
       # Общая папка записей: сюда пишет АТС, отсюда забирает ИИ-агент
       - ./audio_records:/audio_records
 

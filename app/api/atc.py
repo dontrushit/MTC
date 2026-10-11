@@ -156,11 +156,51 @@ async def call_event(
         return {}
     result = ingest_event(db, payload)
     db.commit()
+    result = _mark_mts_consent(db, payload, result)
     if result.submit and result.call_id is not None:
         worker.submit_call(result.call_id)
     elif result.fetch and result.external_id:
         background.add_task(fetch_and_attach, result.external_id)
     return {}
+
+
+def _mark_mts_consent(db: Session, payload: dict, result) -> object:
+    """The operator marks that it announced the recording — then consent is auto."""
+    from datetime import UTC, datetime
+
+    from app.audit import log as audit_log
+    from app.db.models import Call
+
+    told = next(
+        (
+            value
+            for key in ("RecordNotice", "NoticePlayed", "notice_played")
+            for value in [payload.get(key)]
+            if value is not None
+        ),
+        None,
+    )
+    if told is None or result.call_id is None:
+        return result
+    truthy = told is True or str(told).strip().lower() in {"1", "true", "yes", "on"}
+    if not truthy:
+        return result
+    call = db.get(Call, result.call_id)
+    if call is None or call.consent:
+        return result
+    call.consent = True
+    call.consent_source = "ivr_mts"
+    call.consent_at = datetime.now(UTC)
+    audit_log(
+        db,
+        manager=None,
+        action="consent",
+        entity="call",
+        entity_id=call.id,
+        detail="автоматическое уведомление АТС (ivr_mts)",
+    )
+    db.commit()
+    return result
 
 
 @router.get("/atc/settings", response_model=AtcSettingsOut)
