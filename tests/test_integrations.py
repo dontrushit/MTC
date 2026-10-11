@@ -433,7 +433,6 @@ def test_telegram_link_token_lifecycle(api: dict) -> None:
     result = client.post("/telegram/link")
     assert result.status_code == 200
     body = result.json()
-    assert body["expires_in"] == 900
     assert "?start=" in body["url"]
 
     from app.telegram import consume_token, link_url

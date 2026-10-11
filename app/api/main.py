@@ -810,7 +810,7 @@ def telegram_link(
     """One-time bot link; the bot turns /start <token> into a chat id."""
     raw = create_link_token(db, manager)
     db.commit()
-    return {"url": link_url(raw), "expires_in": 900}
+    return {"url": link_url(raw)}
 
 
 @app.get("/audit", response_model=list[AuditOut])

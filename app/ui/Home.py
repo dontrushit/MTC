@@ -239,7 +239,7 @@ def _telegram_block() -> None:
     if st.button("Подключить Telegram", key="tg-link"):
         result = api_post("/telegram/link")
         st.text_input(
-            "Ссылка действует 15 минут",
+            "Ссылка одноразовая, действует до подключения",
             value=str((result or {}).get("url") or ""),
             key="tg-link-url",
         )

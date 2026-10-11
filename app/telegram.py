@@ -7,7 +7,7 @@ import json
 import secrets
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -17,7 +17,6 @@ from app.audit import log as audit_log
 from app.config import settings
 from app.db.models import Manager, TgLinkToken
 
-TOKEN_TTL = timedelta(minutes=15)
 TELEGRAM_API = "https://api.telegram.org"
 SEND_TIMEOUT = 5.0
 SEND_RETRIES = 2
@@ -34,7 +33,7 @@ def create_link_token(session: Session, manager: Manager) -> str:
         TgLinkToken(
             token_hash=_hash(raw),
             manager_id=manager.id,
-            expires_at=datetime.now(UTC) + TOKEN_TTL,
+            expires_at=None,
         )
     )
     session.flush()
@@ -54,12 +53,11 @@ def consume_token(session: Session, raw: str) -> Manager | None:
     if row is None or row.used_at is not None:
         return None
     expires = row.expires_at
-    if expires is None:
-        return None
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=UTC)
-    if expires < datetime.now(UTC):
-        return None
+    if expires is not None:
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        if expires < datetime.now(UTC):
+            return None
     row.used_at = datetime.now(UTC)
     session.flush()
     return session.get(Manager, row.manager_id)
