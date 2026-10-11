@@ -229,11 +229,6 @@ def _client_label(clients: list[dict], client_id: int) -> str:
     return " — ".join(bits)
 
 
-try:
-    main()
-except ApiError as exc:
-    st.error(exc.message)
-
 def _telegram_block() -> None:
     """Link the employee's Telegram; without a bot token the button is hidden."""
 
@@ -254,3 +249,7 @@ def _telegram_block() -> None:
 def _env_has_token() -> bool:
     return bool(str(os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
 
+try:
+    main()
+except ApiError as exc:
+    st.error(exc.message)
